@@ -28,9 +28,10 @@ jobs:
       run: make test-coverage
 
     - name: Run linter
-      uses: golangci/golangci-lint-action@971e284b6050e8a5849b72094c50ab08da042db8 # v6.1.1
-      with:
-        version: v1.64.8
+        uses: golangci/golangci-lint-action@971e284b6050e8a5849b72094c50ab08da042db8 # v6.1.1
+        with:
+          version: v1.64.8
+          only-new-issues: true
 
     - name: Check formatting
       run: |
