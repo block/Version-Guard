@@ -1,0 +1,92 @@
+#!/bin/bash
+
+# Pre-push hook for Version Guard
+# Runs linting and tests before allowing push to remote
+# This prevents broken code from reaching the remote repository
+
+set -e  # Exit on error
+
+echo "🔍 Running pre-push checks..."
+
+# Colors for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+NC='\033[0m' # No Color
+
+# Check if we're in the right directory
+if [ ! -f "go.mod" ]; then
+    echo -e "${RED}❌ Error: Not in repository root (go.mod not found)${NC}"
+    exit 1
+fi
+
+# 1. Run gofmt
+echo -e "${YELLOW}📝 Checking code formatting (gofmt)...${NC}"
+UNFORMATTED=$(gofmt -l $(find . -name '*.go' -not -path './vendor/*' -not -path './protos/block/*'))
+if [ -n "$UNFORMATTED" ]; then
+    echo -e "${RED}❌ The following files are not formatted:${NC}"
+    echo "$UNFORMATTED"
+    echo -e "${YELLOW}💡 Run 'make fmt' to fix formatting${NC}"
+    exit 1
+fi
+echo -e "${GREEN}✅ Code formatting OK${NC}"
+
+# 2. Run goimports
+echo -e "${YELLOW}📦 Checking imports (goimports)...${NC}"
+if ! command -v goimports &> /dev/null; then
+    echo -e "${YELLOW}⚠️  goimports not found, installing...${NC}"
+    go install golang.org/x/tools/cmd/goimports@latest
+fi
+
+UNFORMATTED_IMPORTS=$(goimports -l $(find . -name '*.go' -not -path './vendor/*' -not -path './protos/block/*'))
+if [ -n "$UNFORMATTED_IMPORTS" ]; then
+    echo -e "${RED}❌ The following files have incorrect imports:${NC}"
+    echo "$UNFORMATTED_IMPORTS"
+    echo -e "${YELLOW}💡 Run 'make fmt-imports' to fix imports${NC}"
+    exit 1
+fi
+echo -e "${GREEN}✅ Imports OK${NC}"
+
+# 3. Run golangci-lint
+echo -e "${YELLOW}🔎 Running linter (golangci-lint)...${NC}"
+if ! command -v golangci-lint &> /dev/null; then
+    echo -e "${RED}❌ golangci-lint not found${NC}"
+    echo -e "${YELLOW}💡 Install with: brew install golangci-lint${NC}"
+    echo -e "${YELLOW}💡 Or: curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b \$(go env GOPATH)/bin${NC}"
+    exit 1
+fi
+
+if ! golangci-lint run --timeout=5m; then
+    echo -e "${RED}❌ Linting failed${NC}"
+    echo -e "${YELLOW}💡 Run 'make lint' to see all issues${NC}"
+    echo -e "${YELLOW}💡 Run 'golangci-lint run --fix' to auto-fix some issues${NC}"
+    exit 1
+fi
+echo -e "${GREEN}✅ Linting passed${NC}"
+
+# 4. Run tests
+echo -e "${YELLOW}🧪 Running tests...${NC}"
+if ! go test ./... -race -timeout=300s; then
+    echo -e "${RED}❌ Tests failed${NC}"
+    echo -e "${YELLOW}💡 Run 'make test' for more details${NC}"
+    exit 1
+fi
+echo -e "${GREEN}✅ Tests passed${NC}"
+
+# 5. Check for TODO/FIXME/HACK without issue links (optional warning)
+echo -e "${YELLOW}📋 Checking for TODOs without issue links...${NC}"
+TODOS=$(grep -rn "TODO\|FIXME\|HACK" --include="*.go" --exclude-dir=vendor --exclude-dir=protos . || true)
+if [ -n "$TODOS" ]; then
+    echo -e "${YELLOW}⚠️  Found TODOs/FIXMEs in code:${NC}"
+    echo "$TODOS" | head -10
+    if [ $(echo "$TODOS" | wc -l) -gt 10 ]; then
+        echo -e "${YELLOW}   ... and $(($(echo "$TODOS" | wc -l) - 10)) more${NC}"
+    fi
+    echo -e "${YELLOW}💡 Consider linking them to issues (e.g., TODO(JIRA-123): ...)${NC}"
+    # Don't fail on this, just warn
+fi
+
+echo ""
+echo -e "${GREEN}✅ All pre-push checks passed!${NC}"
+echo -e "${GREEN}🚀 Pushing to remote...${NC}"
+exit 0

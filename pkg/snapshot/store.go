@@ -1,0 +1,291 @@
+package snapshot
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"fmt"
+	"time"
+
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
+
+	"github.com/block/Version-Guard/pkg/types"
+)
+
+const (
+	// SnapshotSchemaVersion is the current schema version for snapshots
+	SnapshotSchemaVersion = "v1"
+)
+
+// Store handles persisting snapshots to S3
+type Store interface {
+	// SaveSnapshot writes a snapshot to S3 with versioning
+	SaveSnapshot(ctx context.Context, snapshot *types.Snapshot) error
+
+	// GetLatestSnapshot retrieves the most recent snapshot
+	GetLatestSnapshot(ctx context.Context) (*types.Snapshot, error)
+
+	// GetSnapshot retrieves a specific snapshot by ID
+	GetSnapshot(ctx context.Context, snapshotID string) (*types.Snapshot, error)
+
+	// ListSnapshots lists recent snapshots with optional limit
+	ListSnapshots(ctx context.Context, limit int) ([]*SnapshotMetadata, error)
+}
+
+// SnapshotMetadata provides summary information about a snapshot without loading full content
+type SnapshotMetadata struct {
+	SnapshotID           string
+	GeneratedAt          time.Time
+	TotalResources       int
+	CompliancePercentage float64
+	S3Key                string
+	S3VersionID          string
+}
+
+// S3Store implements Store using AWS S3
+type S3Store struct {
+	client *s3.Client
+	bucket string
+	prefix string // e.g., "version-guard/snapshots/"
+}
+
+// NewS3Store creates a new S3-backed snapshot store
+func NewS3Store(client *s3.Client, bucket, prefix string) *S3Store {
+	return &S3Store{
+		client: client,
+		bucket: bucket,
+		prefix: prefix,
+	}
+}
+
+// SaveSnapshot writes a snapshot to S3
+func (s *S3Store) SaveSnapshot(ctx context.Context, snapshot *types.Snapshot) error {
+	// Generate S3 key with timestamp and snapshot ID
+	key := s.generateKey(snapshot.GeneratedAt, snapshot.SnapshotID)
+
+	// Marshal to JSON
+	data, err := json.MarshalIndent(snapshot, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to marshal snapshot: %w", err)
+	}
+
+	// Write to S3 with versioning enabled
+	_, err = s.client.PutObject(ctx, &s3.PutObjectInput{
+		Bucket:      aws.String(s.bucket),
+		Key:         aws.String(key),
+		Body:        bytes.NewReader(data),
+		ContentType: aws.String("application/json"),
+		Metadata: map[string]string{
+			"snapshot-id":           snapshot.SnapshotID,
+			"schema-version":        snapshot.Version,
+			"total-resources":       fmt.Sprintf("%d", snapshot.Summary.TotalResources),
+			"compliance-percentage": fmt.Sprintf("%.2f", snapshot.Summary.CompliancePercentage),
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("failed to write snapshot to S3: %w", err)
+	}
+
+	// Also write to "latest" key for easy access
+	latestKey := s.prefix + "latest.json"
+	_, err = s.client.PutObject(ctx, &s3.PutObjectInput{
+		Bucket:      aws.String(s.bucket),
+		Key:         aws.String(latestKey),
+		Body:        bytes.NewReader(data),
+		ContentType: aws.String("application/json"),
+		Metadata: map[string]string{
+			"snapshot-id":    snapshot.SnapshotID,
+			"schema-version": snapshot.Version,
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("failed to write latest snapshot: %w", err)
+	}
+
+	return nil
+}
+
+// GetLatestSnapshot retrieves the most recent snapshot
+func (s *S3Store) GetLatestSnapshot(ctx context.Context) (*types.Snapshot, error) {
+	key := s.prefix + "latest.json"
+
+	result, err := s.client.GetObject(ctx, &s3.GetObjectInput{
+		Bucket: aws.String(s.bucket),
+		Key:    aws.String(key),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to get latest snapshot from S3: %w", err)
+	}
+	defer result.Body.Close()
+
+	var snapshot types.Snapshot
+	if err := json.NewDecoder(result.Body).Decode(&snapshot); err != nil {
+		return nil, fmt.Errorf("failed to decode snapshot: %w", err)
+	}
+
+	return &snapshot, nil
+}
+
+// GetSnapshot retrieves a specific snapshot by ID
+func (s *S3Store) GetSnapshot(ctx context.Context, snapshotID string) (*types.Snapshot, error) {
+	// List objects with prefix matching snapshot ID pattern, handling pagination
+	var targetKey string
+	var continuationToken *string
+
+	for {
+		listResult, err := s.client.ListObjectsV2(ctx, &s3.ListObjectsV2Input{
+			Bucket:            aws.String(s.bucket),
+			Prefix:            aws.String(s.prefix),
+			ContinuationToken: continuationToken,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("failed to list snapshots: %w", err)
+		}
+
+		// Find the matching snapshot in this page
+		for _, obj := range listResult.Contents {
+			// Check if key contains the snapshot ID
+			if obj.Key != nil && containsSnapshotID(*obj.Key, snapshotID) {
+				targetKey = *obj.Key
+				break
+			}
+		}
+
+		// If found, stop paginating
+		if targetKey != "" {
+			break
+		}
+
+		// Check if there are more pages
+		if listResult.IsTruncated != nil && *listResult.IsTruncated {
+			continuationToken = listResult.NextContinuationToken
+		} else {
+			// No more pages and not found
+			break
+		}
+	}
+
+	if targetKey == "" {
+		return nil, fmt.Errorf("snapshot not found: %s", snapshotID)
+	}
+
+	result, err := s.client.GetObject(ctx, &s3.GetObjectInput{
+		Bucket: aws.String(s.bucket),
+		Key:    aws.String(targetKey),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to get snapshot from S3: %w", err)
+	}
+	defer result.Body.Close()
+
+	var snapshot types.Snapshot
+	if err := json.NewDecoder(result.Body).Decode(&snapshot); err != nil {
+		return nil, fmt.Errorf("failed to decode snapshot: %w", err)
+	}
+
+	return &snapshot, nil
+}
+
+// ListSnapshots lists recent snapshots
+func (s *S3Store) ListSnapshots(ctx context.Context, limit int) ([]*SnapshotMetadata, error) {
+	var metadata []*SnapshotMetadata
+	var continuationToken *string
+	remaining := limit
+
+	for {
+		// Determine how many keys to request in this page (max 1000 per S3 API limit)
+		maxKeys := int32(remaining)
+		if maxKeys > 1000 {
+			maxKeys = 1000
+		}
+
+		listResult, err := s.client.ListObjectsV2(ctx, &s3.ListObjectsV2Input{
+			Bucket:            aws.String(s.bucket),
+			Prefix:            aws.String(s.prefix),
+			MaxKeys:           aws.Int32(maxKeys),
+			ContinuationToken: continuationToken,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("failed to list snapshots: %w", err)
+		}
+
+		for _, obj := range listResult.Contents {
+			if obj.Key == nil {
+				continue
+			}
+
+			// Skip the "latest" pointer
+			if *obj.Key == s.prefix+"latest.json" {
+				continue
+			}
+
+			// Get object metadata
+			headResult, err := s.client.HeadObject(ctx, &s3.HeadObjectInput{
+				Bucket: aws.String(s.bucket),
+				Key:    obj.Key,
+			})
+			if err != nil {
+				continue // Skip on error
+			}
+
+			meta := &SnapshotMetadata{
+				S3Key:       *obj.Key,
+				S3VersionID: aws.ToString(headResult.VersionId),
+			}
+
+			// Parse metadata
+			if val, ok := headResult.Metadata["snapshot-id"]; ok {
+				meta.SnapshotID = val
+			}
+			if val, ok := headResult.Metadata["total-resources"]; ok {
+				fmt.Sscanf(val, "%d", &meta.TotalResources)
+			}
+			if val, ok := headResult.Metadata["compliance-percentage"]; ok {
+				fmt.Sscanf(val, "%f", &meta.CompliancePercentage)
+			}
+
+			if obj.LastModified != nil {
+				meta.GeneratedAt = *obj.LastModified
+			}
+
+			metadata = append(metadata, meta)
+
+			// Check if we've reached the limit
+			remaining--
+			if remaining <= 0 {
+				return metadata, nil
+			}
+		}
+
+		// Check if there are more pages
+		if listResult.IsTruncated != nil && *listResult.IsTruncated && remaining > 0 {
+			continuationToken = listResult.NextContinuationToken
+		} else {
+			// No more pages or reached limit
+			break
+		}
+	}
+
+	return metadata, nil
+}
+
+// generateKey creates an S3 key for a snapshot
+// Format: {prefix}YYYY/MM/DD/{snapshotID}.json
+func (s *S3Store) generateKey(timestamp time.Time, snapshotID string) string {
+	return fmt.Sprintf("%s%s/%s.json",
+		s.prefix,
+		timestamp.Format("2006/01/02"),
+		snapshotID,
+	)
+}
+
+// containsSnapshotID checks if an S3 key contains the given snapshot ID
+func containsSnapshotID(key, snapshotID string) bool {
+	expectedSuffix := snapshotID + ".json"
+	// Check if key is long enough to contain the suffix
+	if len(key) < len(expectedSuffix) {
+		return false
+	}
+	return key[len(key)-len(expectedSuffix):] == expectedSuffix
+}

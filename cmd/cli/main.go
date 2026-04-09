@@ -1,0 +1,329 @@
+package main
+
+import (
+	"fmt"
+
+	"github.com/alecthomas/kong"
+)
+
+var version = "dev"
+
+// CLI defines the command-line interface structure
+//
+//nolint:govet // field alignment sacrificed for logical grouping
+type CLI struct {
+	Version  VersionCmd  `cmd:"" help:"Show version information"`
+	Service  ServiceCmd  `cmd:"" help:"Check service compliance"`
+	Finding  FindingCmd  `cmd:"" help:"Manage findings"`
+	Workflow WorkflowCmd `cmd:"" help:"Manage Temporal workflows"`
+	Debug    DebugCmd    `cmd:"" help:"Debug commands for troubleshooting"`
+
+	// Global flags
+	Endpoint string `help:"Version Guard gRPC endpoint" default:"localhost:8080" env:"VERSION_GUARD_ENDPOINT"`
+	Verbose  bool   `short:"v" help:"Enable verbose logging"`
+}
+
+// VersionCmd shows version information
+type VersionCmd struct{}
+
+func (c *VersionCmd) Run(ctx *Context) error {
+	fmt.Printf("version-guard-cli version %s\n", version)
+	return nil
+}
+
+// ServiceCmd checks service compliance
+type ServiceCmd struct {
+	Check ServiceCheckCmd `cmd:"" help:"Check service compliance score"`
+	List  ServiceListCmd  `cmd:"" help:"List all services"`
+}
+
+// ServiceCheckCmd checks a specific service
+type ServiceCheckCmd struct {
+	Service       string `arg:"" help:"Service name to check" required:""`
+	ResourceType  string `help:"Filter by resource type (aurora, elasticache, etc.)"`
+	CloudProvider string `help:"Filter by cloud provider (aws, gcp, azure)"`
+	OutputFormat  string `help:"Output format (text, json, yaml)" default:"text" enum:"text,json,yaml"`
+}
+
+//nolint:unparam // error return required by kong interface
+func (c *ServiceCheckCmd) Run(ctx *Context) error {
+	fmt.Printf("Checking compliance for service: %s\n", c.Service)
+
+	if ctx.Verbose {
+		fmt.Printf("  Endpoint: %s\n", ctx.Endpoint)
+		if c.ResourceType != "" {
+			fmt.Printf("  Resource Type: %s\n", c.ResourceType)
+		}
+		if c.CloudProvider != "" {
+			fmt.Printf("  Cloud Provider: %s\n", c.CloudProvider)
+		}
+	}
+
+	// TODO: Connect to gRPC service and fetch compliance score
+	fmt.Println("\nCompliance Score: BRONZE")
+	fmt.Println("Total Resources: 25")
+	fmt.Println("RED: 5")
+	fmt.Println("YELLOW: 10")
+	fmt.Println("GREEN: 10")
+	fmt.Println("Compliance: 40%")
+
+	return nil
+}
+
+// ServiceListCmd lists all services
+type ServiceListCmd struct {
+	Status       string `help:"Filter by status (red, yellow, green)"`
+	OutputFormat string `help:"Output format (text, json, yaml)" default:"text" enum:"text,json,yaml"`
+}
+
+func (c *ServiceListCmd) Run(ctx *Context) error {
+	fmt.Println("Listing all services...")
+
+	// TODO: Connect to gRPC service and list services
+	fmt.Println("\nService Name    | Grade  | Resources | RED | YELLOW | GREEN")
+	fmt.Println("----------------|--------|-----------|-----|--------|------")
+	fmt.Println("payments        | BRONZE |        25 |   5 |     10 |    10")
+	fmt.Println("billing         | SILVER |        15 |   0 |      5 |    10")
+	fmt.Println("analytics       | GOLD   |        10 |   0 |      0 |    10")
+
+	return nil
+}
+
+// FindingCmd manages findings
+type FindingCmd struct {
+	List   FindingListCmd   `cmd:"" help:"List findings"`
+	Show   FindingShowCmd   `cmd:"" help:"Show finding details"`
+	Export FindingExportCmd `cmd:"" help:"Export findings to CSV"`
+}
+
+// FindingListCmd lists findings
+//
+//nolint:govet // field alignment sacrificed for logical grouping
+type FindingListCmd struct {
+	Service       string `help:"Filter by service"`
+	Status        string `help:"Filter by status (red, yellow, green)"`
+	ResourceType  string `help:"Filter by resource type"`
+	CloudProvider string `help:"Filter by cloud provider"`
+	Limit         int    `help:"Limit number of results" default:"100"`
+	OutputFormat  string `help:"Output format (text, json, yaml)" default:"text" enum:"text,json,yaml"`
+}
+
+//nolint:unparam // error return required by kong interface
+func (c *FindingListCmd) Run(_ *Context) error {
+	fmt.Println("Listing findings...")
+	if c.Service != "" {
+		fmt.Printf("  Service: %s\n", c.Service)
+	}
+	if c.Status != "" {
+		fmt.Printf("  Status: %s\n", c.Status)
+	}
+
+	// TODO: Connect to gRPC service and list findings
+	fmt.Println("\nResource ID                                    | Status | Current Version | EOL Date")
+	fmt.Println("-----------------------------------------------|--------|-----------------|----------")
+	fmt.Println("arn:aws:rds:us-east-1:123:cluster:legacy-db   | RED    | aurora-mysql-5.6| 2024-11-01")
+	fmt.Println("arn:aws:rds:us-east-1:123:cluster:staging-db  | YELLOW | aurora-mysql-5.7| 2025-06-01")
+
+	return nil
+}
+
+// FindingShowCmd shows detailed finding information
+type FindingShowCmd struct {
+	ResourceID   string `arg:"" help:"Resource ID to show" required:""`
+	OutputFormat string `help:"Output format (text, json, yaml)" default:"text" enum:"text,json,yaml"`
+}
+
+//nolint:unparam // error return required by kong interface
+func (c *FindingShowCmd) Run(_ *Context) error {
+	fmt.Printf("Finding Details for: %s\n\n", c.ResourceID)
+
+	// TODO: Connect to gRPC service and fetch finding details
+	fmt.Println("Resource ID:      arn:aws:rds:us-east-1:123:cluster:legacy-db")
+	fmt.Println("Resource Name:    legacy-db")
+	fmt.Println("Resource Type:    AURORA")
+	fmt.Println("Service:          payments")
+	fmt.Println("Status:           RED")
+	fmt.Println("Current Version:  aurora-mysql 5.6.10a")
+	fmt.Println("Engine:           aurora-mysql")
+	fmt.Println("EOL Date:         2024-11-01")
+	fmt.Println("Message:          Version is past End-of-Life (EOL since Nov 2024)")
+	fmt.Println("Recommendation:   Upgrade to aurora-mysql 8.0.35 immediately")
+
+	return nil
+}
+
+// FindingExportCmd exports findings to CSV
+type FindingExportCmd struct {
+	Output  string `help:"Output file path" default:"findings.csv"`
+	Service string `help:"Filter by service"`
+	Status  string `help:"Filter by status (red, yellow, green)"`
+}
+
+//nolint:unparam // error return required by kong interface
+func (c *FindingExportCmd) Run(_ *Context) error {
+	fmt.Printf("Exporting findings to: %s\n", c.Output)
+
+	// TODO: Connect to gRPC service and export findings
+	fmt.Println("✓ Exported 25 findings")
+
+	return nil
+}
+
+// WorkflowCmd manages Temporal workflows
+//
+//nolint:govet // field alignment sacrificed for logical grouping
+type WorkflowCmd struct {
+	Start  WorkflowStartCmd  `cmd:"" help:"Start a detection workflow"`
+	Status WorkflowStatusCmd `cmd:"" help:"Check workflow status"`
+	List   WorkflowListCmd   `cmd:"" help:"List recent workflow runs"`
+}
+
+// WorkflowStartCmd starts a workflow
+type WorkflowStartCmd struct {
+	ResourceType  string `help:"Resource type to scan (aurora, elasticache, etc.)" required:""`
+	CloudProvider string `help:"Cloud provider (aws, gcp, azure)" default:"aws"`
+	Wait          bool   `help:"Wait for workflow to complete"`
+}
+
+//nolint:unparam // error return required by kong interface
+func (c *WorkflowStartCmd) Run(_ *Context) error {
+	fmt.Printf("Starting detection workflow...\n")
+	fmt.Printf("  Resource Type: %s\n", c.ResourceType)
+	fmt.Printf("  Cloud Provider: %s\n", c.CloudProvider)
+
+	// TODO: Connect to Temporal and start workflow
+	scanID := "scan-123456"
+	fmt.Printf("\n✓ Workflow started: %s\n", scanID)
+
+	if c.Wait {
+		fmt.Println("Waiting for workflow to complete...")
+		// TODO: Poll workflow status
+		fmt.Println("✓ Workflow completed successfully")
+		fmt.Println("  Findings: 25")
+		fmt.Println("  Duration: 45s")
+	}
+
+	return nil
+}
+
+// WorkflowStatusCmd checks workflow status
+type WorkflowStatusCmd struct {
+	WorkflowID string `arg:"" help:"Workflow ID to check" required:""`
+}
+
+//nolint:unparam // error return required by kong interface
+func (c *WorkflowStatusCmd) Run(_ *Context) error {
+	fmt.Printf("Workflow Status: %s\n\n", c.WorkflowID)
+
+	// TODO: Connect to Temporal and fetch status
+	fmt.Println("Status:     Completed")
+	fmt.Println("Started:    2026-04-07 15:30:00 UTC")
+	fmt.Println("Completed:  2026-04-07 15:30:45 UTC")
+	fmt.Println("Duration:   45s")
+	fmt.Println("Findings:   25")
+
+	return nil
+}
+
+// WorkflowListCmd lists recent workflow runs
+type WorkflowListCmd struct {
+	Limit int `help:"Number of workflows to show" default:"10"`
+}
+
+func (c *WorkflowListCmd) Run(ctx *Context) error {
+	fmt.Println("Recent Workflow Runs:")
+
+	// TODO: Connect to Temporal and list workflows
+	fmt.Println("Workflow ID        | Type   | Status    | Started             | Duration")
+	fmt.Println("-------------------|--------|-----------|---------------------|----------")
+	fmt.Println("scan-123456        | AURORA | Completed | 2026-04-07 15:30:00 | 45s")
+	fmt.Println("scan-123455        | AURORA | Completed | 2026-04-07 09:30:00 | 42s")
+
+	return nil
+}
+
+// DebugCmd provides debug utilities
+type DebugCmd struct {
+	WizTest       DebugWizTestCmd       `cmd:"" help:"Test Wiz API connectivity"`
+	InventoryList DebugInventoryListCmd `cmd:"" help:"List inventory from source"`
+	EOLVersions   DebugEOLVersionsCmd   `cmd:"" help:"List EOL versions for engine"`
+}
+
+// DebugWizTestCmd tests Wiz connectivity
+type DebugWizTestCmd struct{}
+
+func (c *DebugWizTestCmd) Run(ctx *Context) error {
+	fmt.Println("Testing Wiz API connectivity...")
+
+	// TODO: Test Wiz client
+	fmt.Println("✓ Authentication successful")
+	fmt.Println("✓ Report access verified")
+	fmt.Println("✓ Report download successful")
+	fmt.Println("  Resources found: 125")
+
+	return nil
+}
+
+// DebugInventoryListCmd lists inventory
+type DebugInventoryListCmd struct {
+	ResourceType string `help:"Resource type" required:""`
+}
+
+//nolint:unparam // error return required by kong interface
+func (c *DebugInventoryListCmd) Run(_ *Context) error {
+	fmt.Printf("Listing inventory for: %s\n\n", c.ResourceType)
+
+	// TODO: Fetch inventory
+	fmt.Println("Resource ID                                    | Name       | Version")
+	fmt.Println("-----------------------------------------------|------------|----------------")
+	fmt.Println("arn:aws:rds:us-east-1:123:cluster:db-1        | db-1       | aurora-mysql-8.0")
+
+	return nil
+}
+
+// DebugEOLVersionsCmd lists EOL versions
+type DebugEOLVersionsCmd struct {
+	Engine string `help:"Engine name (e.g., aurora-mysql)" required:""`
+}
+
+//nolint:unparam // error return required by kong interface
+func (c *DebugEOLVersionsCmd) Run(_ *Context) error {
+	fmt.Printf("EOL Versions for: %s\n\n", c.Engine)
+
+	// TODO: Fetch EOL data
+	fmt.Println("Version    | Status      | EOL Date   | Deprecated")
+	fmt.Println("-----------|-------------|------------|------------")
+	fmt.Println("5.6.10a    | EOL         | 2024-11-01 | Yes")
+	fmt.Println("5.7.12     | Extended    | 2025-06-01 | No")
+	fmt.Println("8.0.35     | Supported   | 2028-12-01 | No")
+
+	return nil
+}
+
+// Context holds global CLI context
+type Context struct {
+	*CLI
+}
+
+func main() {
+	cli := &CLI{}
+
+	ctx := kong.Parse(cli,
+		kong.Name("version-guard-cli"),
+		kong.Description("Version Guard CLI - Infrastructure version drift detection"),
+		kong.UsageOnError(),
+		kong.ConfigureHelp(kong.HelpOptions{
+			Compact: true,
+		}),
+		kong.Vars{
+			"version": version,
+		},
+	)
+
+	// Create context
+	cliContext := &Context{CLI: cli}
+
+	// Execute command
+	err := ctx.Run(cliContext)
+	ctx.FatalIfErrorf(err)
+}

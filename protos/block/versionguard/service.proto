@@ -1,0 +1,222 @@
+syntax = "proto3";
+
+package block.versionguard;
+
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/block/Version-Guard/gen/go/block.versionguard";
+
+// VersionGuard service provides version drift detection and compliance data
+service VersionGuard {
+  // GetServiceScore returns compliance score for a specific service
+  rpc GetServiceScore(GetServiceScoreRequest) returns (GetServiceScoreResponse);
+
+  // ListFindings returns findings with optional filters
+  rpc ListFindings(ListFindingsRequest) returns (ListFindingsResponse);
+
+  // GetFleetSummary returns aggregate fleet-wide statistics
+  rpc GetFleetSummary(GetFleetSummaryRequest) returns (GetFleetSummaryResponse);
+}
+
+// ResourceType represents the type of infrastructure resource
+enum ResourceType {
+  RESOURCE_TYPE_UNSPECIFIED = 0;
+  RESOURCE_TYPE_AURORA = 1;
+  RESOURCE_TYPE_ELASTICACHE = 2;
+  RESOURCE_TYPE_OPENSEARCH = 3;
+  RESOURCE_TYPE_EKS = 4;
+  RESOURCE_TYPE_LAMBDA = 5;
+}
+
+// CloudProvider represents the cloud provider
+enum CloudProvider {
+  CLOUD_PROVIDER_UNSPECIFIED = 0;
+  CLOUD_PROVIDER_AWS = 1;
+  CLOUD_PROVIDER_GCP = 2;
+  CLOUD_PROVIDER_AZURE = 3;
+}
+
+// Status represents the compliance status of a resource
+enum Status {
+  STATUS_UNSPECIFIED = 0;
+  STATUS_GREEN = 1;   // Fully supported, current version
+  STATUS_YELLOW = 2;  // Extended support or approaching EOL
+  STATUS_RED = 3;     // Past EOL, deprecated, or expired extended support
+  STATUS_UNKNOWN = 4; // Version not found in EOL database
+}
+
+// ComplianceGrade represents the overall compliance grade for a service
+enum ComplianceGrade {
+  COMPLIANCE_GRADE_UNSPECIFIED = 0;
+  COMPLIANCE_GRADE_BRONZE = 1;  // Resources tracked, data flowing
+  COMPLIANCE_GRADE_SILVER = 2;  // No RED issues
+  COMPLIANCE_GRADE_GOLD = 3;    // No YELLOW issues (fully compliant)
+}
+
+// Finding represents a single version drift finding
+message Finding {
+  // Resource identifier (e.g., ARN for AWS)
+  string resource_id = 1;
+
+  // Resource name
+  string resource_name = 2;
+
+  // Resource type
+  ResourceType resource_type = 3;
+
+  // Cloud provider
+  CloudProvider cloud_provider = 4;
+
+  // Service name (owning service)
+  string service = 5;
+
+  // AWS account ID (if AWS resource)
+  string cloud_account_id = 6;
+
+  // Region
+  string cloud_region = 7;
+
+  // Brand (brand-a, brand-b, brand-c)
+  string brand = 8;
+
+  // Current version string
+  string current_version = 9;
+
+  // Engine/runtime (e.g., "aurora-mysql", "redis", "nodejs")
+  string engine = 10;
+
+  // Compliance status
+  Status status = 11;
+
+  // Human-readable message explaining the issue
+  string message = 12;
+
+  // Recommended action
+  string recommendation = 13;
+
+  // End-of-life date (if applicable)
+  google.protobuf.Timestamp eol_date = 14;
+
+  // When this finding was detected
+  google.protobuf.Timestamp detected_at = 15;
+
+  // When this finding was last updated
+  google.protobuf.Timestamp updated_at = 16;
+}
+
+// GetServiceScoreRequest requests compliance score for a service
+message GetServiceScoreRequest {
+  // Required: service name to check
+  string service = 1;
+
+  // Optional: filter by resource type
+  ResourceType resource_type = 2;
+
+  // Optional: filter by cloud provider
+  CloudProvider cloud_provider = 3;
+}
+
+// GetServiceScoreResponse returns compliance score and grade
+message GetServiceScoreResponse {
+  // Service name
+  string service = 1;
+
+  // Overall compliance grade
+  ComplianceGrade grade = 2;
+
+  // Total number of resources
+  int32 total_resources = 3;
+
+  // Number of RED findings (critical)
+  int32 red_count = 4;
+
+  // Number of YELLOW findings (warnings)
+  int32 yellow_count = 5;
+
+  // Number of GREEN findings (compliant)
+  int32 green_count = 6;
+
+  // Number of UNKNOWN findings
+  int32 unknown_count = 7;
+
+  // Compliance percentage (green / total * 100)
+  float compliance_percentage = 8;
+}
+
+// ListFindingsRequest requests findings with filters
+message ListFindingsRequest {
+  // Optional: filter by cloud provider
+  CloudProvider cloud_provider = 1;
+
+  // Optional: filter by resource type
+  ResourceType resource_type = 2;
+
+  // Optional: filter by service name
+  string service = 3;
+
+  // Optional: filter by status
+  Status status = 4;
+
+  // Optional: filter by brand
+  string brand = 5;
+
+  // Optional: filter by cloud account ID
+  string cloud_account_id = 6;
+
+  // Optional: filter by region
+  string cloud_region = 7;
+
+  // Optional: limit number of results
+  int32 limit = 8;
+}
+
+// ListFindingsResponse returns list of findings
+message ListFindingsResponse {
+  // List of findings matching filters
+  repeated Finding findings = 1;
+
+  // Total count of findings (before limit applied)
+  int32 total_count = 2;
+}
+
+// GetFleetSummaryRequest requests fleet-wide statistics
+message GetFleetSummaryRequest {
+  // Optional: filter by cloud provider
+  CloudProvider cloud_provider = 1;
+
+  // Optional: filter by resource type
+  ResourceType resource_type = 2;
+}
+
+// GetFleetSummaryResponse returns fleet-wide statistics
+message GetFleetSummaryResponse {
+  // Total number of resources
+  int32 total_resources = 1;
+
+  // Number of RED findings (critical)
+  int32 red_count = 2;
+
+  // Number of YELLOW findings (warnings)
+  int32 yellow_count = 3;
+
+  // Number of GREEN findings (compliant)
+  int32 green_count = 4;
+
+  // Number of UNKNOWN findings
+  int32 unknown_count = 5;
+
+  // Overall compliance percentage
+  float compliance_percentage = 6;
+
+  // When the last scan completed
+  google.protobuf.Timestamp last_scan = 7;
+
+  // Breakdown by service name
+  map<string, int32> by_service = 8;
+
+  // Breakdown by brand
+  map<string, int32> by_brand = 9;
+
+  // Breakdown by cloud provider
+  map<string, int32> by_cloud_provider = 10;
+}
