@@ -1,49 +1,20 @@
-# Version Guard Helm Chart — Default Values
-
 replicaCount: 1
 
 image:
   repository: ghcr.io/block/version-guard
-  tag: ""  # defaults to appVersion
+  tag: ""
   pullPolicy: IfNotPresent
 
 serviceAccount:
   create: true
   name: ""
   annotations: {}
-    # eks.amazonaws.com/role-arn: arn:aws:iam::role/version-guard
 
 service:
   type: ClusterIP
   port: 8080
 
-# Environment variables for the Version Guard container.
-# All runtime config is via env vars — see .env.example for the full list.
 env: []
-  # - name: TEMPORAL_ENDPOINT
-  #   value: "temporal.default.svc.cluster.local:7233"
-  # - name: TEMPORAL_NAMESPACE
-  #   value: "version-guard"
-  # - name: WIZ_CLIENT_ID_SECRET
-  #   valueFrom:
-  #     secretKeyRef:
-  #       name: version-guard-wiz
-  #       key: client-id
-  # - name: WIZ_CLIENT_SECRET_SECRET
-  #   valueFrom:
-  #     secretKeyRef:
-  #       name: version-guard-wiz
-  #       key: client-secret
-  # - name: S3_BUCKET
-  #   value: "version-guard-snapshots"
-  # - name: AWS_REGION
-  #   value: "us-west-2"
-
-# Additional volume mounts.
-extraVolumeMounts: []
-
-# Additional volumes.
-extraVolumes: []
 
 resources:
   requests:
@@ -52,11 +23,3 @@ resources:
   limits:
     cpu: 1000m
     memory: 512Mi
-
-# Pod annotations (e.g., IAM role, Datadog).
-podAnnotations: {}
-
-# Node selector, tolerations, affinity.
-nodeSelector: {}
-tolerations: []
-affinity: {}

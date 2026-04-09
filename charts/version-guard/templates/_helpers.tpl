@@ -1,13 +1,7 @@
-{{/*
-Expand the name of the chart.
-*/}}
 {{- define "version-guard.name" -}}
 {{- default .Chart.Name .Values.nameOverride | trunc 63 | trimSuffix "-" }}
 {{- end }}
 
-{{/*
-Create a default fully qualified app name.
-*/}}
 {{- define "version-guard.fullname" -}}
 {{- if .Values.fullnameOverride }}
 {{- .Values.fullnameOverride | trunc 63 | trimSuffix "-" }}
@@ -21,9 +15,10 @@ Create a default fully qualified app name.
 {{- end }}
 {{- end }}
 
-{{/*
-Common labels.
-*/}}
+{{- define "version-guard.chart" -}}
+{{- printf "%s-%s" .Chart.Name .Chart.Version | replace "+" "_" | trunc 63 | trimSuffix "-" }}
+{{- end }}
+
 {{- define "version-guard.labels" -}}
 helm.sh/chart: {{ include "version-guard.chart" . }}
 {{ include "version-guard.selectorLabels" . }}
@@ -31,24 +26,11 @@ app.kubernetes.io/version: {{ .Values.image.tag | default .Chart.AppVersion | qu
 app.kubernetes.io/managed-by: {{ .Release.Service }}
 {{- end }}
 
-{{/*
-Selector labels.
-*/}}
 {{- define "version-guard.selectorLabels" -}}
 app.kubernetes.io/name: {{ include "version-guard.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
 
-{{/*
-Chart label.
-*/}}
-{{- define "version-guard.chart" -}}
-{{- printf "%s-%s" .Chart.Name .Chart.Version | replace "+" "_" | trunc 63 | trimSuffix "-" }}
-{{- end }}
-
-{{/*
-Service account name.
-*/}}
 {{- define "version-guard.serviceAccountName" -}}
 {{- if .Values.serviceAccount.create }}
 {{- default (include "version-guard.fullname" .) .Values.serviceAccount.name }}
