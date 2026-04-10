@@ -10,6 +10,8 @@ serviceAccount:
   name: ""
   annotations: {}
 
+containerPort: 8080
+
 service:
   type: ClusterIP
   port: 8080
