@@ -72,7 +72,7 @@ type ServerCLI struct {
 
 	// Schedule configuration
 	ScheduleEnabled bool   `help:"Enable scheduled scanning" default:"false" env:"SCHEDULE_ENABLED"`
-	ScheduleCron    string `help:"Cron expression for scan schedule" default:"0 */6 * * *" env:"SCHEDULE_CRON"`
+	ScheduleCron    string `help:"Cron expression for scan schedule" default:"0 6 * * *" env:"SCHEDULE_CRON"`
 	ScheduleID      string `help:"Temporal schedule ID" default:"version-guard-scan" env:"SCHEDULE_ID"`
 	ScheduleJitter  string `help:"Schedule jitter duration" default:"5m" env:"SCHEDULE_JITTER"`
 
