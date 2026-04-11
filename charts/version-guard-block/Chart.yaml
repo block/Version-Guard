@@ -1,0 +1,9 @@
+apiVersion: v2
+type: application
+name: version-guard-block
+version: 0.1.0
+description: Block wrapper for Version Guard - adds ExternalSecrets for Wiz credentials
+dependencies:
+  - name: version-guard
+    version: "0.1.0"
+    repository: "file://../version-guard"

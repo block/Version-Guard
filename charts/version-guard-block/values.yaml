@@ -1,0 +1,31 @@
+region: us-west-2
+
+secretsManager:
+  enabled: true
+  # The name of the SecretStore resource
+  storeName: secretsmanager
+  # The ServiceAccount used for AWS auth (must have IAM permissions to read secrets)
+  serviceAccountName: version-guard
+  # AWS Secrets Manager key for Wiz credentials (JSON with client_id and client_secret)
+  wizSecretKey: "version-guard/wiz-credentials"
+
+# Upstream version-guard chart values
+version-guard:
+  replicaCount: 1
+  image:
+    repository: ghcr.io/block/version-guard
+    tag: ""
+  serviceAccount:
+    create: true
+    name: version-guard
+  env:
+    - name: WIZ_CLIENT_ID_SECRET
+      valueFrom:
+        secretKeyRef:
+          name: version-guard-wiz-credentials
+          key: wiz-client-id
+    - name: WIZ_CLIENT_SECRET_SECRET
+      valueFrom:
+        secretKeyRef:
+          name: version-guard-wiz-credentials
+          key: wiz-client-secret
