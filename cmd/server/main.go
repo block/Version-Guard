@@ -269,6 +269,7 @@ func (s *ServerCLI) Run(_ *kong.Context) error {
 	// Start gRPC server
 	// Note: gRPC server requires protobuf code generation first.
 	// Run `make protos` to generate the gRPC service code, then uncomment below:
+	//nolint:gocritic // Intentionally commented - template for future gRPC implementation
 	/*
 		grpcServer := grpc.NewServer()
 		vgService := grpcservice.NewService(st)
@@ -348,6 +349,7 @@ func (s *ServerCLI) Run(_ *kong.Context) error {
 
 	fmt.Println("\n\nShutting down gracefully...")
 	w.Stop()
+	//nolint:gocritic // Intentionally commented - template for future gRPC implementation
 	// grpcServer.GracefulStop() // Uncomment when gRPC server is enabled
 	fmt.Println("✓ Shutdown complete")
 

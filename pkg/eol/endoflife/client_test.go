@@ -143,9 +143,9 @@ func TestRealHTTPClient_ContextCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	// Execute - should fail due to cancelled context
+	// Execute - should fail due to canceled context
 	_, err := client.GetProductCycles(ctx, "test")
 	if err == nil {
-		t.Error("Expected error due to cancelled context, got nil")
+		t.Error("Expected error due to canceled context, got nil")
 	}
 }

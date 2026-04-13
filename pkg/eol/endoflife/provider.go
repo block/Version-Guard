@@ -14,10 +14,22 @@ import (
 )
 
 // ProductMapping maps internal engine names to endoflife.date product identifiers
+//
+// WARNING: This provider uses STANDARD endoflife.date field semantics:
+//   - cycle.EOL → true end of life date
+//   - cycle.Support → end of standard support date
+//
+// Some AWS products (e.g., EKS) use NON-STANDARD schemas on endoflife.date
+// and MUST use dedicated providers (e.g., EKSEOLProvider) instead of this generic provider.
+// These products are listed here but blocked by ProductsWithNonStandardSchema below.
 var ProductMapping = map[string]string{
-	"kubernetes":         "amazon-eks",
-	"k8s":                "amazon-eks",
-	"eks":                "amazon-eks",
+	// EKS entries are mapped but BLOCKED by ProductsWithNonStandardSchema
+	// because EKS uses non-standard schema where cycle.EOL means "end of standard support"
+	// not "true end of life". Use pkg/eol/aws.EKSEOLProvider instead.
+	"kubernetes": "amazon-eks",
+	"k8s":        "amazon-eks",
+	"eks":        "amazon-eks",
+
 	"postgres":           "amazon-rds-postgresql",
 	"postgresql":         "amazon-rds-postgresql",
 	"mysql":              "amazon-rds-mysql",
@@ -28,6 +40,18 @@ var ProductMapping = map[string]string{
 	"valkey":             "valkey",
 	"elasticache-valkey": "valkey",
 }
+
+// ProductsWithNonStandardSchema lists products that MUST NOT use this generic provider
+// because they use non-standard field semantics on endoflife.date.
+// The provider will return an error if these products are requested.
+var ProductsWithNonStandardSchema = []string{
+	"amazon-eks", // cycle.EOL = end of standard support (NOT true EOL!)
+}
+
+const (
+	providerName = "endoflife-date-api"
+	falseBool    = "false"
+)
 
 // Provider fetches EOL data from endoflife.date API
 //
@@ -61,7 +85,7 @@ func NewProvider(client Client, cacheTTL time.Duration) *Provider {
 
 // Name returns the name of this provider
 func (p *Provider) Name() string {
-	return "endoflife-date-api"
+	return providerName
 }
 
 // Engines returns the list of supported engines
@@ -98,9 +122,16 @@ func (p *Provider) GetVersionLifecycle(ctx context.Context, engine, version stri
 		}
 	}
 
-	// Version not found - return an unknown lifecycle
 	// Version not found - return unknown lifecycle (empty Version signals missing data)
-	// Policy will classify as UNKNOWN (data gap) rather than RED/YELLOW (user issue)
+	//
+	// Design Decision: Return lifecycle with empty Version rather than error
+	// Rationale:
+	//   - Maintains observability: Resource tracked with UNKNOWN status vs lost entirely
+	//   - Graceful degradation: Workflow continues during partial API outages
+	//   - Policy decides: EOL provider fetches data, policy layer interprets "unknown"
+	//
+	// Alternative (rejected): Return error - would cause workflow to skip resource,
+	// losing visibility into resources with incomplete EOL data coverage.
 	return &types.VersionLifecycle{
 		Version:     "", // Empty = unknown data, not unsupported version
 		Engine:      engine,
@@ -121,12 +152,23 @@ func (p *Provider) ListAllVersions(ctx context.Context, engine string) ([]*types
 		return nil, fmt.Errorf("unsupported engine: %s", engine)
 	}
 
+	// Guard against products with non-standard schemas
+	// These products interpret endoflife.date fields differently and need dedicated providers
+	for _, blockedProduct := range ProductsWithNonStandardSchema {
+		if product == blockedProduct {
+			return nil, fmt.Errorf(
+				"engine %s (product: %s) uses non-standard endoflife.date schema and cannot use generic provider; use dedicated provider instead (e.g., EKSEOLProvider)",
+				engine, product,
+			)
+		}
+	}
+
 	// Use product as cache key
 	cacheKey := product
 
 	// Check cache first (fast path)
 	p.mu.RLock()
-	if cached, ok := p.cache[cacheKey]; ok {
+	if cached, found := p.cache[cacheKey]; found {
 		if time.Since(cached.fetchedAt) < p.cacheTTL {
 			versions := cached.versions
 			p.mu.RUnlock()
@@ -170,19 +212,26 @@ func (p *Provider) ListAllVersions(ctx context.Context, engine string) ([]*types
 		return nil, err
 	}
 
-	return result.([]*types.VersionLifecycle), nil
+	versions, ok := result.([]*types.VersionLifecycle)
+	if !ok {
+		return nil, errors.New("failed to convert result to VersionLifecycle slice")
+	}
+	return versions, nil
 }
 
 // convertCycle converts a ProductCycle to our VersionLifecycle type
+//
+// Field Mapping (STANDARD endoflife.date schema):
+//   - cycle.ReleaseDate → ReleaseDate
+//   - cycle.Support → DeprecationDate (end of standard support)
+//   - cycle.EOL → EOLDate (true end of life)
+//   - cycle.ExtendedSupport → ExtendedSupportEnd
+//
+// WARNING: This assumes STANDARD field semantics. Products with non-standard schemas
+// (e.g., amazon-eks where cycle.EOL means "end of standard support", not true EOL)
+// should be blocked by ListAllVersions and use dedicated providers instead.
 func (p *Provider) convertCycle(engine, product string, cycle *ProductCycle) (*types.VersionLifecycle, error) {
 	version := cycle.Cycle
-
-	// Add engine-specific prefix for consistency
-	if engine == "kubernetes" || engine == "k8s" || engine == "eks" {
-		if !strings.HasPrefix(version, "k8s-") {
-			version = "k8s-" + version
-		}
-	}
 
 	lifecycle := &types.VersionLifecycle{
 		Version:   version,
@@ -198,18 +247,18 @@ func (p *Provider) convertCycle(engine, product string, cycle *ProductCycle) (*t
 		}
 	}
 
-	// Parse EOL date
+	// Parse EOL date (STANDARD semantics: true end of life)
 	var eolDate *time.Time
-	if cycle.EOL != "" && cycle.EOL != "false" {
+	if cycle.EOL != "" && cycle.EOL != falseBool {
 		if parsed, err := parseDate(cycle.EOL); err == nil {
 			eolDate = &parsed
 			lifecycle.EOLDate = eolDate
 		}
 	}
 
-	// Parse support date (end of standard support)
+	// Parse support date (STANDARD semantics: end of standard support)
 	var supportDate *time.Time
-	if cycle.Support != "" && cycle.Support != "false" {
+	if cycle.Support != "" && cycle.Support != falseBool {
 		if parsed, err := parseDate(cycle.Support); err == nil {
 			supportDate = &parsed
 			lifecycle.DeprecationDate = supportDate
@@ -221,7 +270,7 @@ func (p *Provider) convertCycle(engine, product string, cycle *ProductCycle) (*t
 	if cycle.ExtendedSupport != nil {
 		switch v := cycle.ExtendedSupport.(type) {
 		case string:
-			if v != "" && v != "false" {
+			if v != "" && v != falseBool {
 				if parsed, err := parseDate(v); err == nil {
 					extendedSupportDate = &parsed
 					lifecycle.ExtendedSupportEnd = extendedSupportDate

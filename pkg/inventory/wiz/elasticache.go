@@ -63,45 +63,18 @@ func (s *ElastiCacheInventorySource) ListResources(ctx context.Context, resource
 		return nil, fmt.Errorf("unsupported resource type: %s (only ELASTICACHE supported)", resourceType)
 	}
 
-	// Fetch report data
-	rows, err := s.client.GetReportData(ctx, s.reportID)
-	if err != nil {
-		return nil, errors.Wrap(err, "failed to fetch Wiz report data")
-	}
-
-	if len(rows) < 2 {
-		// Empty report (only header row)
-		return []*types.Resource{}, nil
-	}
-
-	// Skip header row, parse data rows
-	var resources []*types.Resource
-	for i, row := range rows[1:] {
-		if len(row) < colMinRequired {
-			// Skip malformed rows
-			continue
-		}
-
-		// Filter for ElastiCache resources only
-		nativeType := row[colNativeType]
-		if !isElastiCacheResource(nativeType) {
-			continue
-		}
-
-		resource, err := s.parseElastiCacheRow(ctx, row)
-		if err != nil {
-			// Log error but continue processing other rows
-			// TODO: add proper logging
-			_ = fmt.Sprintf("row %d: failed to parse ElastiCache resource: %v", i+1, err)
-			continue
-		}
-
-		if resource != nil {
-			resources = append(resources, resource)
-		}
-	}
-
-	return resources, nil
+	// Use shared helper to parse Wiz report
+	return parseWizReport(
+		ctx,
+		s.client,
+		s.reportID,
+		colMinRequired, // Minimum required columns
+		func(row []string) bool {
+			// Filter for ElastiCache resources only
+			return isElastiCacheResource(row[colNativeType])
+		},
+		s.parseElastiCacheRow,
+	)
 }
 
 // GetResource fetches a specific ElastiCache resource by ARN

@@ -3,11 +3,8 @@ package wiz
 import (
 	"context"
 	"fmt"
-	"log"
 	"strings"
 	"time"
-
-	"github.com/pkg/errors"
 
 	"github.com/block/Version-Guard/pkg/registry"
 	"github.com/block/Version-Guard/pkg/types"
@@ -73,53 +70,23 @@ func (s *EKSInventorySource) CloudProvider() types.CloudProvider {
 }
 
 // ListResources fetches all EKS clusters from Wiz
-//
-//nolint:dupl // acceptable duplication with Aurora inventory source
 func (s *EKSInventorySource) ListResources(ctx context.Context, resourceType types.ResourceType) ([]*types.Resource, error) {
 	if resourceType != types.ResourceTypeEKS {
 		return nil, fmt.Errorf("unsupported resource type: %s (only EKS supported)", resourceType)
 	}
 
-	// Fetch report data
-	rows, err := s.client.GetReportData(ctx, s.reportID)
-	if err != nil {
-		return nil, errors.Wrap(err, "failed to fetch Wiz report data")
-	}
-
-	if len(rows) < 2 {
-		// Empty report (only header row)
-		return []*types.Resource{}, nil
-	}
-
-	// Skip header row, parse data rows
-	var resources []*types.Resource
-	for i, row := range rows[1:] {
-		// Ensure row has minimum required columns
-		if len(row) < colEKSTypeFieldsKind+1 {
-			// Skip malformed rows
-			continue
-		}
-
-		// Filter for EKS clusters - nativeType should be "cluster"
-		nativeType := row[colEKSNativeType]
-		if !isEKSResource(nativeType) {
-			continue
-		}
-
-		resource, err := s.parseEKSRow(ctx, row)
-		if err != nil {
-			// Log error but continue processing other rows
-			// TODO: wire through proper structured logger (e.g., *slog.Logger)
-			log.Printf("WARN: row %d: failed to parse EKS resource: %v", i+1, err)
-			continue
-		}
-
-		if resource != nil {
-			resources = append(resources, resource)
-		}
-	}
-
-	return resources, nil
+	// Use shared helper to parse Wiz report
+	return parseWizReport(
+		ctx,
+		s.client,
+		s.reportID,
+		colEKSTypeFieldsKind+1, // Minimum required columns
+		func(row []string) bool {
+			// Filter for EKS clusters - nativeType should be "cluster"
+			return isEKSResource(row[colEKSNativeType])
+		},
+		s.parseEKSRow,
+	)
 }
 
 // GetResource fetches a specific EKS cluster by ARN

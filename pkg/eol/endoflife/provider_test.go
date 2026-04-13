@@ -2,43 +2,45 @@ package endoflife
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/block/Version-Guard/pkg/types"
 )
 
-func TestProvider_GetVersionLifecycle_EKS(t *testing.T) {
+func TestProvider_GetVersionLifecycle_PostgreSQL(t *testing.T) {
 	// Mock client with test data (using dates relative to 2026-04-08)
+	// Testing with PostgreSQL which uses STANDARD endoflife.date schema
 	mockClient := &MockClient{
 		GetProductCyclesFunc: func(ctx context.Context, product string) ([]*ProductCycle, error) {
-			if product != "amazon-eks" {
-				t.Errorf("Expected product amazon-eks, got %s", product)
+			if product != "amazon-rds-postgresql" {
+				t.Errorf("Expected product amazon-rds-postgresql, got %s", product)
 			}
 			return []*ProductCycle{
 				{
 					// Current version - still in standard support
-					Cycle:           "1.35",
-					ReleaseDate:     "2025-11-19",
-					Support:         "2027-12-19", // Future
-					EOL:             "2029-05-19", // Far future
-					ExtendedSupport: true,
+					Cycle:           "16.2",
+					ReleaseDate:     "2024-05-09",
+					Support:         "2028-11-09", // Future
+					EOL:             "2028-11-09", // Same as support end
+					ExtendedSupport: false,
 				},
 				{
 					// Extended support version - past standard, before EOL
-					Cycle:           "1.32",
-					ReleaseDate:     "2024-05-29",
-					Support:         "2025-06-29", // Past
-					EOL:             "2027-11-29", // Future
-					ExtendedSupport: true,
+					Cycle:           "14.10",
+					ReleaseDate:     "2022-11-10",
+					Support:         "2024-11-12", // Past
+					EOL:             "2027-11-12", // Future (extended support)
+					ExtendedSupport: "2027-11-12",
 				},
 				{
 					// EOL version - past all support dates
-					Cycle:           "1.28",
-					ReleaseDate:     "2023-09-26",
-					Support:         "2024-10-26", // Past
-					EOL:             "2026-03-26", // Past (before 2026-04-08)
-					ExtendedSupport: true,
+					Cycle:           "12.18",
+					ReleaseDate:     "2020-11-12",
+					Support:         "2024-11-14", // Past
+					EOL:             "2024-11-14", // Past (before 2026-04-08)
+					ExtendedSupport: false,
 				},
 			}, nil
 		},
@@ -56,46 +58,37 @@ func TestProvider_GetVersionLifecycle_EKS(t *testing.T) {
 		wantEOL        bool
 	}{
 		{
-			name:           "current version 1.35",
-			engine:         "kubernetes",
-			version:        "1.35",
-			wantVersion:    "k8s-1.35",
+			name:           "current version 16.2",
+			engine:         "postgres",
+			version:        "16.2",
+			wantVersion:    "16.2",
 			wantSupported:  true,
 			wantDeprecated: false,
 			wantEOL:        false,
 		},
 		{
-			name:           "version with k8s- prefix",
-			engine:         "kubernetes",
-			version:        "k8s-1.35",
-			wantVersion:    "k8s-1.35",
+			name:           "postgresql engine variant",
+			engine:         "postgresql",
+			version:        "16.2",
+			wantVersion:    "16.2",
 			wantSupported:  true,
 			wantDeprecated: false,
 			wantEOL:        false,
 		},
 		{
-			name:           "eks engine variant",
-			engine:         "eks",
-			version:        "1.35",
-			wantVersion:    "k8s-1.35",
-			wantSupported:  true,
-			wantDeprecated: false,
-			wantEOL:        false,
-		},
-		{
-			name:           "extended support version 1.32",
-			engine:         "kubernetes",
-			version:        "1.32",
-			wantVersion:    "k8s-1.32",
+			name:           "extended support version 14.10",
+			engine:         "postgres",
+			version:        "14.10",
+			wantVersion:    "14.10",
 			wantSupported:  true,  // Still in extended support
 			wantDeprecated: true,  // Past standard support
 			wantEOL:        false, // Not yet EOL
 		},
 		{
-			name:           "eol version 1.28",
-			engine:         "kubernetes",
-			version:        "1.28",
-			wantVersion:    "k8s-1.28",
+			name:           "eol version 12.18",
+			engine:         "postgres",
+			version:        "12.18",
+			wantVersion:    "12.18",
 			wantSupported:  false, // Past all support
 			wantDeprecated: true,  // Deprecated
 			wantEOL:        true,  // Past EOL date
@@ -141,16 +134,16 @@ func TestProvider_ListAllVersions(t *testing.T) {
 		GetProductCyclesFunc: func(ctx context.Context, product string) ([]*ProductCycle, error) {
 			return []*ProductCycle{
 				{
-					Cycle:       "1.35",
-					ReleaseDate: "2025-11-19",
-					Support:     "2027-12-19",
-					EOL:         "2029-05-19",
+					Cycle:       "16.2",
+					ReleaseDate: "2024-05-09",
+					Support:     "2028-11-09",
+					EOL:         "2028-11-09",
 				},
 				{
-					Cycle:       "1.34",
-					ReleaseDate: "2025-05-29",
-					Support:     "2027-06-29",
-					EOL:         "2028-11-29",
+					Cycle:       "15.6",
+					ReleaseDate: "2023-05-11",
+					Support:     "2027-11-11",
+					EOL:         "2027-11-11",
 				},
 			}, nil
 		},
@@ -158,7 +151,7 @@ func TestProvider_ListAllVersions(t *testing.T) {
 
 	provider := NewProvider(mockClient, 1*time.Hour)
 
-	versions, err := provider.ListAllVersions(context.Background(), "kubernetes")
+	versions, err := provider.ListAllVersions(context.Background(), "postgres")
 	if err != nil {
 		t.Fatalf("ListAllVersions() error = %v", err)
 	}
@@ -168,11 +161,11 @@ func TestProvider_ListAllVersions(t *testing.T) {
 	}
 
 	// Verify first version
-	if versions[0].Version != "k8s-1.35" {
-		t.Errorf("First version = %s, want k8s-1.35", versions[0].Version)
+	if versions[0].Version != "16.2" {
+		t.Errorf("First version = %s, want 16.2", versions[0].Version)
 	}
-	if versions[0].Engine != "kubernetes" {
-		t.Errorf("First version engine = %s, want kubernetes", versions[0].Engine)
+	if versions[0].Engine != "postgres" {
+		t.Errorf("First version engine = %s, want postgres", versions[0].Engine)
 	}
 	if versions[0].Source != "endoflife-date-api" {
 		t.Errorf("Source = %s, want endoflife-date-api", versions[0].Source)
@@ -186,10 +179,10 @@ func TestProvider_Caching(t *testing.T) {
 			callCount++
 			return []*ProductCycle{
 				{
-					Cycle:       "1.35",
-					ReleaseDate: "2025-11-19",
-					Support:     "2027-12-19",
-					EOL:         "2029-05-19",
+					Cycle:       "16.2",
+					ReleaseDate: "2024-05-09",
+					Support:     "2028-11-09",
+					EOL:         "2028-11-09",
 				},
 			}, nil
 		},
@@ -198,7 +191,7 @@ func TestProvider_Caching(t *testing.T) {
 	provider := NewProvider(mockClient, 1*time.Hour)
 
 	// First call - should hit API
-	_, err := provider.ListAllVersions(context.Background(), "kubernetes")
+	_, err := provider.ListAllVersions(context.Background(), "postgres")
 	if err != nil {
 		t.Fatalf("First call error = %v", err)
 	}
@@ -207,7 +200,7 @@ func TestProvider_Caching(t *testing.T) {
 	}
 
 	// Second call - should use cache
-	_, err = provider.ListAllVersions(context.Background(), "kubernetes")
+	_, err = provider.ListAllVersions(context.Background(), "postgres")
 	if err != nil {
 		t.Fatalf("Second call error = %v", err)
 	}
@@ -216,7 +209,7 @@ func TestProvider_Caching(t *testing.T) {
 	}
 
 	// Third call - should still use cache
-	_, err = provider.GetVersionLifecycle(context.Background(), "kubernetes", "1.35")
+	_, err = provider.GetVersionLifecycle(context.Background(), "postgres", "16.2")
 	if err != nil {
 		t.Fatalf("Third call error = %v", err)
 	}
@@ -232,10 +225,10 @@ func TestProvider_CacheExpiration(t *testing.T) {
 			callCount++
 			return []*ProductCycle{
 				{
-					Cycle:       "1.35",
-					ReleaseDate: "2025-11-19",
-					Support:     "2027-12-19",
-					EOL:         "2029-05-19",
+					Cycle:       "16.2",
+					ReleaseDate: "2024-05-09",
+					Support:     "2028-11-09",
+					EOL:         "2028-11-09",
 				},
 			}, nil
 		},
@@ -245,7 +238,7 @@ func TestProvider_CacheExpiration(t *testing.T) {
 	provider := NewProvider(mockClient, 50*time.Millisecond)
 
 	// First call
-	_, err := provider.ListAllVersions(context.Background(), "kubernetes")
+	_, err := provider.ListAllVersions(context.Background(), "postgres")
 	if err != nil {
 		t.Fatalf("First call error = %v", err)
 	}
@@ -257,7 +250,7 @@ func TestProvider_CacheExpiration(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 
 	// Second call after expiration - should hit API again
-	_, err = provider.ListAllVersions(context.Background(), "kubernetes")
+	_, err = provider.ListAllVersions(context.Background(), "postgres")
 	if err != nil {
 		t.Fatalf("Second call error = %v", err)
 	}
@@ -281,10 +274,10 @@ func TestProvider_VersionNotFound(t *testing.T) {
 		GetProductCyclesFunc: func(ctx context.Context, product string) ([]*ProductCycle, error) {
 			return []*ProductCycle{
 				{
-					Cycle:       "1.31",
-					ReleaseDate: "2024-11-19",
-					Support:     "2025-12-19",
-					EOL:         "2027-05-19",
+					Cycle:       "16.2",
+					ReleaseDate: "2024-05-09",
+					Support:     "2028-11-09",
+					EOL:         "2028-11-09",
 				},
 			}, nil
 		},
@@ -292,7 +285,7 @@ func TestProvider_VersionNotFound(t *testing.T) {
 
 	provider := NewProvider(mockClient, 1*time.Hour)
 
-	lifecycle, err := provider.GetVersionLifecycle(context.Background(), "kubernetes", "99.99")
+	lifecycle, err := provider.GetVersionLifecycle(context.Background(), "postgres", "99.99")
 	if err != nil {
 		t.Fatalf("Expected no error for unknown version, got %v", err)
 	}
@@ -304,8 +297,8 @@ func TestProvider_VersionNotFound(t *testing.T) {
 	if lifecycle.Version != "" {
 		t.Errorf("Version = %s, want empty string (signals data gap)", lifecycle.Version)
 	}
-	if lifecycle.Engine != "kubernetes" {
-		t.Errorf("Engine = %s, want kubernetes", lifecycle.Engine)
+	if lifecycle.Engine != "postgres" {
+		t.Errorf("Engine = %s, want postgres", lifecycle.Engine)
 	}
 }
 
@@ -326,11 +319,47 @@ func TestProvider_Engines(t *testing.T) {
 		engineMap[e] = true
 	}
 
-	requiredEngines := []string{"kubernetes", "eks", "postgres", "mysql", "redis"}
+	// Note: EKS/kubernetes are NOT in this list because they use non-standard schema
+	// and must use dedicated EKSEOLProvider instead
+	requiredEngines := []string{"postgres", "mysql", "redis"}
 	for _, required := range requiredEngines {
 		if !engineMap[required] {
 			t.Errorf("Expected engine %s to be present", required)
 		}
+	}
+}
+
+func TestProvider_BlocksNonStandardSchema(t *testing.T) {
+	// EKS/kubernetes should be blocked because it uses non-standard endoflife.date schema
+	// where cycle.EOL means "end of standard support" NOT "true EOL"
+	mockClient := &MockClient{
+		GetProductCyclesFunc: func(ctx context.Context, product string) ([]*ProductCycle, error) {
+			// This should never be called because the guard should reject it first
+			t.Error("GetProductCycles should not be called for blocked products")
+			return nil, nil
+		},
+	}
+
+	provider := NewProvider(mockClient, 1*time.Hour)
+
+	// Test that all EKS-related engine names are blocked
+	blockedEngines := []string{"kubernetes", "k8s", "eks"}
+	for _, engine := range blockedEngines {
+		t.Run(engine, func(t *testing.T) {
+			_, err := provider.ListAllVersions(context.Background(), engine)
+			if err == nil {
+				t.Errorf("Expected error for %s (non-standard schema), got nil", engine)
+			}
+			if err != nil && !strings.Contains(err.Error(), "non-standard") {
+				t.Errorf("Error should mention 'non-standard schema', got: %v", err)
+			}
+
+			// GetVersionLifecycle should also be blocked
+			_, err = provider.GetVersionLifecycle(context.Background(), engine, "1.35")
+			if err == nil {
+				t.Errorf("Expected error for %s in GetVersionLifecycle, got nil", engine)
+			}
+		})
 	}
 }
 

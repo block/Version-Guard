@@ -73,7 +73,7 @@ func NewRealHTTPClientWithConfig(httpClient *http.Client, baseURL string) *RealH
 func (c *RealHTTPClient) GetProductCycles(ctx context.Context, product string) ([]*ProductCycle, error) {
 	url := fmt.Sprintf("%s/%s.json", c.baseURL, product)
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, http.NoBody)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to create request")
 	}
@@ -88,7 +88,10 @@ func (c *RealHTTPClient) GetProductCycles(ctx context.Context, product string) (
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return nil, errors.Errorf("unexpected status code %d (failed to read response body)", resp.StatusCode)
+		}
 		return nil, errors.Errorf("unexpected status code %d: %s", resp.StatusCode, string(body))
 	}
 

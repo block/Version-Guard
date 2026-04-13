@@ -31,6 +31,13 @@ type EKSVersion struct {
 	LatestPlatformVersion string     // Latest platform version for this K8s version
 }
 
+// EKS version status constants
+const (
+	eksStatusStandard   = "standard"
+	eksStatusExtended   = "extended"
+	eksStatusDeprecated = "deprecated"
+)
+
 // EKSEOLProvider fetches EOL data from AWS EKS API
 //
 //nolint:govet // field alignment sacrificed for readability
@@ -111,7 +118,15 @@ func (p *EKSEOLProvider) GetVersionLifecycle(ctx context.Context, engine, versio
 	}
 
 	// Version not found - return unknown lifecycle (empty Version signals missing data)
-	// Policy will classify as UNKNOWN (data gap) rather than RED/YELLOW (user issue)
+	//
+	// Design Decision: Return lifecycle with empty Version rather than error
+	// Rationale:
+	//   - Maintains observability: Resource tracked with UNKNOWN status vs lost entirely
+	//   - Graceful degradation: Workflow continues during partial API outages
+	//   - Policy decides: EOL provider fetches data, policy layer interprets "unknown"
+	//
+	// Alternative (rejected): Return error - would cause workflow to skip resource,
+	// losing visibility into resources with incomplete EOL data coverage.
 	return &types.VersionLifecycle{
 		Version:     "", // Empty = unknown data, not unsupported version
 		Engine:      engine,
@@ -170,7 +185,11 @@ func (p *EKSEOLProvider) ListAllVersions(ctx context.Context, engine string) ([]
 		return nil, err
 	}
 
-	return result.([]*types.VersionLifecycle), nil
+	versions, ok := result.([]*types.VersionLifecycle)
+	if !ok {
+		return nil, errors.New("failed to convert result to VersionLifecycle slice")
+	}
+	return versions, nil
 }
 
 // convertAWSVersion converts an AWS EKSVersion to our VersionLifecycle type
@@ -198,17 +217,17 @@ func (p *EKSEOLProvider) convertAWSVersion(av *EKSVersion) *types.VersionLifecyc
 	status := strings.ToLower(av.Status)
 
 	switch status {
-	case "standard":
+	case eksStatusStandard:
 		lifecycle.IsSupported = true
 		lifecycle.IsDeprecated = false
 		lifecycle.IsEOL = false
 
-	case "extended":
+	case eksStatusExtended:
 		lifecycle.IsSupported = true
 		lifecycle.IsExtendedSupport = true
 		lifecycle.IsDeprecated = true
 
-	case "deprecated":
+	case eksStatusDeprecated:
 		lifecycle.IsDeprecated = true
 		lifecycle.IsSupported = false
 
@@ -272,8 +291,22 @@ func enrichWithLifecycleDates(ctx context.Context, version *EKSVersion, eolClien
 	updateStatusFromDates(version)
 }
 
-// enrichFromEndOfLife attempts to enrich version data from endoflife.date API
-// Returns true if successful, false if data not found or API error
+// enrichFromEndOfLife attempts to enrich version data from endoflife.date cycles
+// Returns true if successful, false if data not found
+//
+// WARNING: Amazon EKS uses a NON-STANDARD schema on endoflife.date
+//
+// Standard endoflife.date semantics:
+//   - cycle.EOL = true end of life date
+//   - cycle.Support = end of standard support
+//
+// Amazon EKS DEVIATION (non-standard):
+//   - cycle.EOL = end of STANDARD support (NOT true EOL!)
+//   - cycle.ExtendedSupport = end of EXTENDED support (true EOL)
+//   - cycle.Support = often empty/missing
+//
+// This is why EKS MUST use EKSEOLProvider with this custom field mapping
+// instead of the generic endoflife.Provider (which would interpret dates incorrectly).
 func enrichFromEndOfLife(ctx context.Context, version *EKSVersion, client endoflife.Client) bool {
 	cycles, err := client.GetProductCycles(ctx, "amazon-eks")
 	if err != nil {
@@ -294,12 +327,7 @@ func enrichFromEndOfLife(ctx context.Context, version *EKSVersion, client endofl
 			}
 		}
 
-		// For Amazon EKS, endoflife.date has a special schema:
-		// - "eol" field = end of STANDARD support (not true EOL)
-		// - "extendedSupport" field = end of EXTENDED support (true EOL)
-		// - "support" field is often empty/missing for EKS
-
-		// End of standard support from EOL field (EKS-specific)
+		// End of standard support from EOL field (EKS NON-STANDARD mapping!)
 		if version.EndOfStandardDate == nil && cycle.EOL != "" && cycle.EOL != "false" {
 			if eolDate, err := time.Parse("2006-01-02", cycle.EOL); err == nil {
 				version.EndOfStandardDate = &eolDate
@@ -371,14 +399,14 @@ func enrichWithStaticDates(version *EKSVersion) {
 // updateStatusFromDates updates version status based on lifecycle dates
 func updateStatusFromDates(version *EKSVersion) {
 	// Update status based on dates if not already set
-	if version.Status == "" || version.Status == "extended" || version.Status == "standard" {
+	if version.Status == "" || version.Status == eksStatusExtended || version.Status == eksStatusStandard {
 		now := time.Now()
 		if version.EndOfExtendedDate != nil && now.After(*version.EndOfExtendedDate) {
-			version.Status = "deprecated"
+			version.Status = eksStatusDeprecated
 		} else if version.EndOfStandardDate != nil && now.After(*version.EndOfStandardDate) {
-			version.Status = "extended"
+			version.Status = eksStatusExtended
 		} else if version.Status == "" {
-			version.Status = "standard"
+			version.Status = eksStatusStandard
 		}
 	}
 }

@@ -93,7 +93,15 @@ func (p *RDSEOLProvider) GetVersionLifecycle(ctx context.Context, engine, versio
 	}
 
 	// Version not found - return unknown lifecycle (empty Version signals missing data)
-	// Policy will classify as UNKNOWN (data gap) rather than RED/YELLOW (user issue)
+	//
+	// Design Decision: Return lifecycle with empty Version rather than error
+	// Rationale:
+	//   - Maintains observability: Resource tracked with UNKNOWN status vs lost entirely
+	//   - Graceful degradation: Workflow continues during partial API outages
+	//   - Policy decides: EOL provider fetches data, policy layer interprets "unknown"
+	//
+	// Alternative (rejected): Return error - would cause workflow to skip resource,
+	// losing visibility into resources with incomplete EOL data coverage.
 	return &types.VersionLifecycle{
 		Version:     "", // Empty = unknown data, not unsupported version
 		Engine:      engine,
@@ -146,7 +154,11 @@ func (p *RDSEOLProvider) ListAllVersions(ctx context.Context, engine string) ([]
 		return nil, err
 	}
 
-	return result.([]*types.VersionLifecycle), nil
+	versions, ok := result.([]*types.VersionLifecycle)
+	if !ok {
+		return nil, errors.New("failed to convert result to VersionLifecycle slice")
+	}
+	return versions, nil
 }
 
 // convertAWSVersion converts an AWS EngineVersion to our VersionLifecycle type

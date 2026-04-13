@@ -108,7 +108,11 @@ func (a *Activities) loadResources(batchID string, fallback []*types.Resource) (
 	if !ok {
 		return nil, fmt.Errorf("resource batch %q not found", batchID)
 	}
-	return v.([]*types.Resource), nil
+	resources, ok := v.([]*types.Resource)
+	if !ok {
+		return nil, fmt.Errorf("resource batch %q has invalid type", batchID)
+	}
+	return resources, nil
 }
 
 func (a *Activities) loadFindings(batchID string, fallback []*types.Finding) ([]*types.Finding, error) {
@@ -119,7 +123,11 @@ func (a *Activities) loadFindings(batchID string, fallback []*types.Finding) ([]
 	if !ok {
 		return nil, fmt.Errorf("findings batch %q not found", batchID)
 	}
-	return v.([]*types.Finding), nil
+	findings, ok := v.([]*types.Finding)
+	if !ok {
+		return nil, fmt.Errorf("findings batch %q has invalid type", batchID)
+	}
+	return findings, nil
 }
 
 // FetchInventory fetches all resources of a given type from the inventory source

@@ -239,9 +239,13 @@ func (s *S3Store) ListSnapshots(ctx context.Context, limit int) ([]*SnapshotMeta
 				meta.SnapshotID = val
 			}
 			if val, ok := headResult.Metadata["total-resources"]; ok {
+				// Ignore scan error - if parsing fails, field remains zero
+				//nolint:errcheck // Intentionally ignoring parse errors - metadata is best-effort
 				fmt.Sscanf(val, "%d", &meta.TotalResources)
 			}
 			if val, ok := headResult.Metadata["compliance-percentage"]; ok {
+				// Ignore scan error - if parsing fails, field remains zero
+				//nolint:errcheck // Intentionally ignoring parse errors - metadata is best-effort
 				fmt.Sscanf(val, "%f", &meta.CompliancePercentage)
 			}
 

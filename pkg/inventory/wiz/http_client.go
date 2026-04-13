@@ -147,7 +147,7 @@ func (c *HTTPClient) GetReport(ctx context.Context, accessToken, reportID string
 
 // DownloadReport downloads the report CSV from the provided URL
 func (c *HTTPClient) DownloadReport(ctx context.Context, downloadURL string) (io.ReadCloser, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, downloadURL, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, downloadURL, http.NoBody)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to create download request")
 	}
