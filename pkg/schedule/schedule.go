@@ -95,8 +95,14 @@ func (m *Manager) EnsureSchedule(ctx context.Context, cfg ScheduleConfig) error 
 	// Update the schedule with the new spec
 	err = handle.Update(ctx, client.ScheduleUpdateOptions{
 		DoUpdate: func(input client.ScheduleUpdateInput) (*client.ScheduleUpdate, error) {
+			if input.Description.Schedule.Spec == nil {
+				input.Description.Schedule.Spec = &client.ScheduleSpec{}
+			}
 			input.Description.Schedule.Spec.CronExpressions = []string{cfg.CronExpression}
 			input.Description.Schedule.Spec.Jitter = cfg.Jitter
+			if action, ok := input.Description.Schedule.Action.(*client.ScheduleWorkflowAction); ok {
+				action.TaskQueue = cfg.TaskQueue
+			}
 			return &client.ScheduleUpdate{
 				Schedule: &input.Description.Schedule,
 			}, nil

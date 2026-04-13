@@ -370,7 +370,9 @@ func (s *ServerCLI) Run(_ *kong.Context) error {
 		}
 
 		scheduleMgr := schedule.NewManager(temporalClient)
-		schedErr := scheduleMgr.EnsureSchedule(ctx, schedule.ScheduleConfig{
+		schedCtx, schedCancel := context.WithTimeout(ctx, 10*time.Second)
+		defer schedCancel()
+		schedErr := scheduleMgr.EnsureSchedule(schedCtx, schedule.ScheduleConfig{
 			Enabled:        true,
 			ScheduleID:     s.ScheduleID,
 			CronExpression: s.ScheduleCron,

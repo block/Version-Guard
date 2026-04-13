@@ -179,6 +179,48 @@ func TestEnsureSchedule_CreateError(t *testing.T) {
 	assert.Contains(t, err.Error(), "connection refused")
 }
 
+func TestEnsureSchedule_AlreadyExists_NilSpec(t *testing.T) {
+	handle := &mockScheduleHandle{
+		id: "test-schedule",
+		describeOut: &client.ScheduleDescription{
+			Schedule: client.Schedule{
+				Spec: nil, // nil Spec in describe output
+			},
+		},
+	}
+	// Capture and invoke the DoUpdate callback to verify the nil Spec guard
+	// inside the update path doesn't panic.
+	handle.updateFn = func(opts client.ScheduleUpdateOptions) {
+		// Simulate what the real Temporal SDK does: call DoUpdate with
+		// the described schedule (which has a nil Spec).
+		input := client.ScheduleUpdateInput{
+			Description: *handle.describeOut,
+		}
+		result, err := opts.DoUpdate(input)
+		require.NoError(t, err, "DoUpdate should not error with nil Spec")
+		require.NotNil(t, result, "DoUpdate should return an update")
+		require.NotNil(t, result.Schedule.Spec, "Spec should be non-nil after DoUpdate sets it")
+		assert.Equal(t, []string{"0 */6 * * *"}, result.Schedule.Spec.CronExpressions)
+		assert.Equal(t, 5*time.Minute, result.Schedule.Spec.Jitter)
+	}
+	mock := &mockScheduleCreator{
+		createErr: temporal.ErrScheduleAlreadyRunning,
+		handle:    handle,
+	}
+	mgr := NewManagerWithClient(mock)
+
+	err := mgr.EnsureSchedule(context.Background(), ScheduleConfig{
+		Enabled:        true,
+		ScheduleID:     "test-schedule",
+		CronExpression: "0 */6 * * *",
+		Jitter:         5 * time.Minute,
+		TaskQueue:      "test-queue",
+	})
+
+	require.NoError(t, err)
+	assert.True(t, handle.updateCalled, "Update should be called when Spec is nil")
+}
+
 func TestEnsureSchedule_DescribeError(t *testing.T) {
 	handle := &mockScheduleHandle{
 		id:          "test-schedule",
