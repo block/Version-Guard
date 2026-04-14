@@ -2,7 +2,9 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"net/http"
 	"os"
 	"os/signal"
 	"strings"
@@ -61,6 +63,7 @@ type ServerCLI struct {
 
 	// Service configuration
 	GRPCPort int `help:"gRPC service port" default:"8080" env:"GRPC_PORT"`
+	HTTPPort int `help:"HTTP API port for health checks and scan triggers" default:"8081" env:"HTTP_PORT"`
 
 	// Tag configuration (comma-separated lists for AWS resource tags)
 	TagAppKeys   string `help:"Comma-separated tag keys for application/service name" default:"app,application,service" env:"TAG_APP_KEYS"`
@@ -342,12 +345,52 @@ func (s *ServerCLI) Run(_ *kong.Context) error {
 		return fmt.Errorf("failed to start worker: %w", err)
 	}
 
+	// Start HTTP API server for health checks and scan triggers
+	mux := http.NewServeMux()
+	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		fmt.Fprintln(w, "ok")
+	})
+	mux.HandleFunc("/scan", func(hw http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(hw, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		workflowID := fmt.Sprintf("version-guard-scan-%d", time.Now().Unix())
+		run, err := temporalClient.ExecuteWorkflow(
+			context.Background(),
+			client.StartWorkflowOptions{
+				ID:        workflowID,
+				TaskQueue: s.TemporalTaskQueue,
+			},
+			orchestrator.OrchestratorWorkflowType,
+		)
+		if err != nil {
+			http.Error(hw, fmt.Sprintf("failed to start workflow: %v", err), http.StatusInternalServerError)
+			return
+		}
+		hw.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(hw).Encode(map[string]string{
+			"workflow_id": workflowID,
+			"run_id":      run.GetRunID(),
+			"status":      "started",
+		})
+	})
+	httpServer := &http.Server{Addr: fmt.Sprintf(":%d", s.HTTPPort), Handler: mux}
+	go func() {
+		fmt.Printf("✓ HTTP API listening on :%d (GET /healthz, POST /scan)\n", s.HTTPPort)
+		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			fmt.Fprintf(os.Stderr, "HTTP server error: %v\n", err)
+		}
+	}()
+
 	// Wait for interrupt signal
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 	<-sigChan
 
 	fmt.Println("\n\nShutting down gracefully...")
+	httpServer.Shutdown(context.Background())
 	w.Stop()
 	//nolint:gocritic // Intentionally commented - template for future gRPC implementation
 	// grpcServer.GracefulStop() // Uncomment when gRPC server is enabled
