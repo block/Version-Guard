@@ -292,7 +292,9 @@ func (s *ServerCLI) Run(_ *kong.Context) error {
 	fmt.Println("⚠️  gRPC server disabled (run 'make protos' to generate proto code)")
 
 	// Create Temporal worker
-	w := worker.New(temporalClient, s.TemporalTaskQueue, worker.Options{})
+	w := worker.New(temporalClient, s.TemporalTaskQueue, worker.Options{
+		EnableSessionWorker: true,
+	})
 
 	// Register workflows
 	w.RegisterWorkflow(detection.DetectionWorkflow)
