@@ -19,35 +19,25 @@ import (
 //   - cycle.EOL → true end of life date
 //   - cycle.Support → end of standard support date
 //
-// Some AWS products (e.g., EKS) use NON-STANDARD schemas on endoflife.date
-// and MUST use dedicated providers (e.g., EKSEOLProvider) instead of this generic provider.
-// These products are listed here but blocked by ProductsWithNonStandardSchema below.
+// ProductMapping maps engine names to endoflife.date product identifiers.
+// All EOL data comes from endoflife.date — no cloud provider APIs needed.
 var ProductMapping = map[string]string{
 	"kubernetes": "amazon-eks",
 	"k8s":        "amazon-eks",
 	"eks":        "amazon-eks",
 
-	"postgres":           "amazon-rds-postgresql",
-	"postgresql":         "amazon-rds-postgresql",
-	"mysql":              "amazon-rds-mysql",
-	"aurora-postgresql":  "amazon-aurora-postgresql",
-	"redis":              "amazon-elasticache-redis",
-	"elasticache-redis":  "amazon-elasticache-redis",
-	"valkey":             "valkey",
+	"postgres":          "amazon-rds-postgresql",
+	"postgresql":        "amazon-rds-postgresql",
+	"mysql":             "amazon-rds-mysql",
+	"aurora-postgresql": "amazon-aurora-postgresql",
+	// TODO(endoflife.date#9534): aurora-mysql → amazon-aurora-mysql once the
+	// endoflife.date PR is merged. Until then, aurora-mysql returns UNKNOWN.
+	"aurora-mysql":      "amazon-aurora-mysql",
+	"redis":             "amazon-elasticache-redis",
+	"elasticache-redis": "amazon-elasticache-redis",
+	"valkey":            "valkey",
 	"elasticache-valkey": "valkey",
-	// Note: aurora-mysql is NOT mapped because endoflife.date has no
-	// amazon-aurora-mysql product. Aurora MySQL uses its own 3.x versioning
-	// that doesn't match amazon-rds-mysql cycles (8.0, 5.7). Needs AWS RDS API.
 }
-
-// ProductsWithNonStandardSchema lists products that MUST NOT use this generic provider
-// because they use non-standard field semantics on endoflife.date.
-// The provider will return an error if these products are requested.
-//
-// Note on EKS: endoflife.date's "eol" field for EKS means end of standard support
-// (not true EOL), and "extendedSupport" is the true EOL. This is handled correctly
-// by convertCycle which maps eol→EOLDate and extendedSupport→ExtendedSupportEnd.
-var ProductsWithNonStandardSchema = []string{}
 
 const (
 	providerName = "endoflife-date-api"
@@ -162,17 +152,6 @@ func (p *Provider) ListAllVersions(ctx context.Context, engine string) ([]*types
 	product, ok := ProductMapping[engine]
 	if !ok {
 		return nil, fmt.Errorf("unsupported engine: %s", engine)
-	}
-
-	// Guard against products with non-standard schemas
-	// These products interpret endoflife.date fields differently and need dedicated providers
-	for _, blockedProduct := range ProductsWithNonStandardSchema {
-		if product == blockedProduct {
-			return nil, fmt.Errorf(
-				"engine %s (product: %s) uses non-standard endoflife.date schema and cannot use generic provider; use dedicated provider instead (e.g., EKSEOLProvider)",
-				engine, product,
-			)
-		}
 	}
 
 	// Use product as cache key
