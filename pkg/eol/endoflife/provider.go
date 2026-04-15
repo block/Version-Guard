@@ -114,12 +114,23 @@ func (p *Provider) GetVersionLifecycle(ctx context.Context, engine, version stri
 		return nil, err
 	}
 
-	// Find the specific version
+	// Find the specific version — try exact match first, then prefix match.
+	// endoflife.date uses major.minor cycles (e.g., "8.0", "7") while Wiz
+	// reports full versions (e.g., "8.0.35", "7.1.0").
+	var bestMatch *types.VersionLifecycle
+	bestMatchLen := 0
 	for _, v := range versions {
 		normalizedV := normalizeVersion(engine, v.Version)
 		if normalizedV == version {
 			return v, nil
 		}
+		if strings.HasPrefix(version, normalizedV+".") && len(normalizedV) > bestMatchLen {
+			bestMatch = v
+			bestMatchLen = len(normalizedV)
+		}
+	}
+	if bestMatch != nil {
+		return bestMatch, nil
 	}
 
 	// Version not found - return unknown lifecycle (empty Version signals missing data)
@@ -249,8 +260,8 @@ func (p *Provider) convertCycle(engine, product string, cycle *ProductCycle) (*t
 
 	// Parse EOL date (STANDARD semantics: true end of life)
 	var eolDate *time.Time
-	if cycle.EOL != "" && cycle.EOL != falseBool {
-		if parsed, err := parseDate(cycle.EOL); err == nil {
+	if dateStr := anyToDateString(cycle.EOL); dateStr != "" {
+		if parsed, err := parseDate(dateStr); err == nil {
 			eolDate = &parsed
 			lifecycle.EOLDate = eolDate
 		}
@@ -258,8 +269,8 @@ func (p *Provider) convertCycle(engine, product string, cycle *ProductCycle) (*t
 
 	// Parse support date (STANDARD semantics: end of standard support)
 	var supportDate *time.Time
-	if cycle.Support != "" && cycle.Support != falseBool {
-		if parsed, err := parseDate(cycle.Support); err == nil {
+	if dateStr := anyToDateString(cycle.Support); dateStr != "" {
+		if parsed, err := parseDate(dateStr); err == nil {
 			supportDate = &parsed
 			lifecycle.DeprecationDate = supportDate
 		}
@@ -351,6 +362,18 @@ func normalizeVersion(engine, version string) string {
 
 	// For other engines, return as-is
 	return version
+}
+
+// anyToDateString extracts a date string from an any-typed field.
+// endoflife.date returns EOL/Support as either a date string or a boolean.
+func anyToDateString(v any) string {
+	switch val := v.(type) {
+	case string:
+		if val != "" && val != "false" && val != "true" {
+			return val
+		}
+	}
+	return ""
 }
 
 // parseDate parses date strings from endoflife.date API

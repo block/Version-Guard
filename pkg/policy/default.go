@@ -2,6 +2,7 @@ package policy
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/block/Version-Guard/pkg/types"
@@ -37,8 +38,10 @@ func (p *DefaultPolicy) Name() string {
 // - GREEN: Current supported version
 // - UNKNOWN: Version not found in EOL database
 func (p *DefaultPolicy) Classify(resource *types.Resource, lifecycle *types.VersionLifecycle) types.Status {
-	// If lifecycle data is empty or version doesn't match, return UNKNOWN
-	if lifecycle.Version == "" || lifecycle.Version != resource.CurrentVersion {
+	// If lifecycle data is empty or version doesn't match, return UNKNOWN.
+	// endoflife.date uses major.minor cycles (e.g., "8.0") while resources
+	// have full versions (e.g., "8.0.35"), so we use prefix matching.
+	if lifecycle.Version == "" || !versionMatches(lifecycle.Version, resource.CurrentVersion) {
 		return types.StatusUnknown
 	}
 
@@ -241,6 +244,16 @@ func (p *DefaultPolicy) getYellowRecommendation(resource *types.Resource, lifecy
 	}
 
 	return fmt.Sprintf("Plan upgrade to the latest supported version of %s within the next 90 days", resource.Engine)
+}
+
+// versionMatches checks if a resource version matches a lifecycle version.
+// endoflife.date uses major.minor cycles (e.g., "8.0") while resources may have
+// full versions (e.g., "8.0.35").
+func versionMatches(lifecycleVersion, resourceVersion string) bool {
+	if lifecycleVersion == resourceVersion {
+		return true
+	}
+	return strings.HasPrefix(resourceVersion, lifecycleVersion+".")
 }
 
 // getSuggestedVersion returns a suggested version based on engine type

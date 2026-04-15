@@ -31,8 +31,8 @@ type Client interface {
 type ProductCycle struct {
 	Cycle             string `json:"cycle"`             // Version identifier (e.g., "1.31")
 	ReleaseDate       string `json:"releaseDate"`       // Release date (YYYY-MM-DD)
-	Support           string `json:"support"`           // End of standard support (YYYY-MM-DD or boolean)
-	EOL               string `json:"eol"`               // End of life date (YYYY-MM-DD or boolean)
+	Support           any    `json:"support"`           // End of standard support (YYYY-MM-DD or boolean)
+	EOL               any    `json:"eol"`               // End of life date (YYYY-MM-DD or boolean)
 	ExtendedSupport   any    `json:"extendedSupport"`   // Extended support availability (boolean or date)
 	LTS               bool   `json:"lts"`               // Long-term support flag
 	Latest            string `json:"latest"`            // Latest patch version
