@@ -201,6 +201,7 @@ func isCommonSuffix(s string) bool {
 		}
 	}
 	return false
+}
 
 // parseAWSResourceRow is a shared parser for Aurora and ElastiCache CSV rows.
 // Both resource types have identical parsing logic, differing only in the
