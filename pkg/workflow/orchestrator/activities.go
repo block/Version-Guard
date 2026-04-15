@@ -2,6 +2,7 @@ package orchestrator
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"go.temporal.io/sdk/activity"
@@ -29,10 +30,6 @@ type SnapshotResult struct {
 	SnapshotID           string
 	TotalFindings        int
 	CompliancePercentage float64
-}
-
-type SignalActWorkflowInput struct {
-	SnapshotID string
 }
 
 // Activities struct holds dependencies
@@ -69,8 +66,7 @@ func (a *Activities) CreateSnapshot(ctx context.Context, input CreateSnapshotInp
 			ResourceType: &rt,
 		})
 		if err != nil {
-			logger.Warn("Failed to retrieve findings for snapshot", "resourceType", resourceType, "error", err)
-			continue
+			return nil, fmt.Errorf("retrieve findings for %s: %w", resourceType, err)
 		}
 		logger.Info("Retrieved findings for snapshot", "resourceType", resourceType, "count", len(findings))
 		builder.AddFindings(resourceType, findings)

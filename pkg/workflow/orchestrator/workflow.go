@@ -1,6 +1,7 @@
 package orchestrator
 
 import (
+	"fmt"
 	"time"
 
 	"go.temporal.io/sdk/temporal"
@@ -49,7 +50,6 @@ type ResourceTypeResult struct {
 // OrchestratorWorkflow is the main workflow that orchestrates the three-stage pipeline:
 // Stage 1: Detect - Fan out across resource types in parallel
 // Stage 2: Store - Write classified findings to S3 as versioned snapshot
-// Stage 3: Trigger the ActWorkflow (separate workflow) via signal
 func OrchestratorWorkflow(ctx workflow.Context, input WorkflowInput) (*WorkflowOutput, error) {
 	logger := workflow.GetLogger(ctx)
 
@@ -140,6 +140,10 @@ func OrchestratorWorkflow(ctx workflow.Context, input WorkflowInput) (*WorkflowO
 	}
 
 	logger.Info("Stage 1: Detect - All detection workflows completed", "successCount", len(successfulTypes))
+
+	if len(successfulTypes) == 0 {
+		return nil, fmt.Errorf("all detection workflows failed; no findings to snapshot")
+	}
 
 	// Stage 2: STORE - Create and persist snapshot to S3
 	logger.Info("Stage 2: Store - Creating snapshot")

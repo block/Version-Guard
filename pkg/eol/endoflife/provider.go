@@ -13,12 +13,6 @@ import (
 	"github.com/block/Version-Guard/pkg/types"
 )
 
-// ProductMapping maps internal engine names to endoflife.date product identifiers
-//
-// WARNING: This provider uses STANDARD endoflife.date field semantics:
-//   - cycle.EOL → true end of life date
-//   - cycle.Support → end of standard support date
-//
 // ProductMapping maps engine names to endoflife.date product identifiers.
 // All EOL data comes from endoflife.date — no cloud provider APIs needed.
 var ProductMapping = map[string]string{
@@ -212,15 +206,11 @@ func (p *Provider) ListAllVersions(ctx context.Context, engine string) ([]*types
 
 // convertCycle converts a ProductCycle to our VersionLifecycle type
 //
-// Field Mapping (STANDARD endoflife.date schema):
+// Field mapping:
 //   - cycle.ReleaseDate → ReleaseDate
 //   - cycle.Support → DeprecationDate (end of standard support)
-//   - cycle.EOL → EOLDate (true end of life)
+//   - cycle.EOL → EOLDate
 //   - cycle.ExtendedSupport → ExtendedSupportEnd
-//
-// WARNING: This assumes STANDARD field semantics. Products with non-standard schemas
-// (e.g., amazon-eks where cycle.EOL means "end of standard support", not true EOL)
-// should be blocked by ListAllVersions and use dedicated providers instead.
 func (p *Provider) convertCycle(engine, product string, cycle *ProductCycle) (*types.VersionLifecycle, error) {
 	version := cycle.Cycle
 

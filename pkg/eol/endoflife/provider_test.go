@@ -318,9 +318,7 @@ func TestProvider_Engines(t *testing.T) {
 		engineMap[e] = true
 	}
 
-	// Note: EKS/kubernetes are NOT in this list because they use non-standard schema
-	// and must use dedicated EKSEOLProvider instead
-	requiredEngines := []string{"postgres", "mysql", "redis"}
+	requiredEngines := []string{"postgres", "mysql", "redis", "kubernetes"}
 	for _, required := range requiredEngines {
 		if !engineMap[required] {
 			t.Errorf("Expected engine %s to be present", required)
