@@ -2,6 +2,7 @@ package policy
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/block/Version-Guard/pkg/types"
@@ -37,8 +38,10 @@ func (p *DefaultPolicy) Name() string {
 // - GREEN: Current supported version
 // - UNKNOWN: Version not found in EOL database
 func (p *DefaultPolicy) Classify(resource *types.Resource, lifecycle *types.VersionLifecycle) types.Status {
-	// If lifecycle data is empty or version doesn't match, return UNKNOWN
-	if lifecycle.Version == "" || lifecycle.Version != resource.CurrentVersion {
+	// If lifecycle data is empty or version doesn't match, return UNKNOWN.
+	// endoflife.date uses major.minor cycles (e.g., "8.0") while resources
+	// have full versions (e.g., "8.0.35"), so we use prefix matching.
+	if lifecycle.Version == "" || !versionMatches(lifecycle.Version, resource.CurrentVersion) {
 		return types.StatusUnknown
 	}
 
@@ -68,8 +71,8 @@ func (p *DefaultPolicy) isRedStatus(lifecycle *types.VersionLifecycle) bool {
 		return true
 	}
 
-	// Deprecated
-	if lifecycle.IsDeprecated {
+	// Deprecated (but not if still in extended support)
+	if lifecycle.IsDeprecated && !lifecycle.IsExtendedSupport {
 		return true
 	}
 
@@ -241,6 +244,24 @@ func (p *DefaultPolicy) getYellowRecommendation(resource *types.Resource, lifecy
 	}
 
 	return fmt.Sprintf("Plan upgrade to the latest supported version of %s within the next 90 days", resource.Engine)
+}
+
+// versionMatches checks if a resource version matches a lifecycle version.
+// endoflife.date uses major.minor cycles (e.g., "8.0") while resources may have
+// full versions (e.g., "8.0.35") or prefixed versions (e.g., "k8s-1.33").
+func versionMatches(lifecycleVersion, resourceVersion string) bool {
+	if lifecycleVersion == resourceVersion {
+		return true
+	}
+	// Strip common prefixes for comparison
+	normalized := resourceVersion
+	for _, prefix := range []string{"k8s-", "kubernetes-"} {
+		normalized = strings.TrimPrefix(normalized, prefix)
+	}
+	if lifecycleVersion == normalized {
+		return true
+	}
+	return strings.HasPrefix(normalized, lifecycleVersion+".")
 }
 
 // getSuggestedVersion returns a suggested version based on engine type

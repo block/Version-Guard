@@ -328,9 +328,11 @@ func enrichFromEndOfLife(ctx context.Context, version *EKSVersion, client endofl
 		}
 
 		// End of standard support from EOL field (EKS NON-STANDARD mapping!)
-		if version.EndOfStandardDate == nil && cycle.EOL != "" && cycle.EOL != "false" {
-			if eolDate, err := time.Parse("2006-01-02", cycle.EOL); err == nil {
-				version.EndOfStandardDate = &eolDate
+		if version.EndOfStandardDate == nil {
+			if eolStr, ok := cycle.EOL.(string); ok && eolStr != "" && eolStr != "false" {
+				if eolDate, err := time.Parse("2006-01-02", eolStr); err == nil {
+					version.EndOfStandardDate = &eolDate
+				}
 			}
 		}
 
