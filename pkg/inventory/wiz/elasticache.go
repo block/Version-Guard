@@ -4,10 +4,6 @@ import (
 	"context"
 	"fmt"
 	"strings"
-	"time"
-
-	"github.com/aws/aws-sdk-go-v2/aws/arn"
-	"github.com/pkg/errors"
 
 	"github.com/block/Version-Guard/pkg/registry"
 	"github.com/block/Version-Guard/pkg/types"
@@ -96,72 +92,7 @@ func (s *ElastiCacheInventorySource) GetResource(ctx context.Context, resourceTy
 
 // parseElastiCacheRow parses a single CSV row into a Resource
 func (s *ElastiCacheInventorySource) parseElastiCacheRow(ctx context.Context, cols columnIndex, row []string) (*types.Resource, error) {
-	resourceARN, err := cols.require(row, colHeaderExternalID)
-	if err != nil {
-		return nil, fmt.Errorf("missing ARN")
-	}
-
-	// Parse ARN
-	parsedARN, err := arn.Parse(resourceARN)
-	if err != nil {
-		return nil, errors.Wrapf(err, "invalid ARN: %s", resourceARN)
-	}
-
-	// Extract metadata
-	resourceName := cols.col(row, colHeaderName)
-	accountID := cols.col(row, colHeaderAccountID)
-	if accountID == "" {
-		accountID = parsedARN.AccountID
-	}
-
-	engine := normalizeElastiCacheKind(cols.col(row, colHeaderEngineKind))
-	version := cols.col(row, colHeaderVersion)
-	region := cols.col(row, colHeaderRegion)
-
-	// Parse tags
-	tagsJSON := cols.col(row, colHeaderTags)
-	tags, err := ParseTags(tagsJSON)
-	if err != nil {
-		// Non-fatal, just use empty tags
-		tags = make(map[string]string)
-	}
-
-	// Extract service name from tags (using configurable tag keys)
-	service := s.tagConfig.GetAppTag(tags)
-	if service == "" {
-		// Try registry lookup by AWS account (if registry is configured)
-		if s.registryClient != nil {
-			if serviceInfo, err := s.registryClient.GetServiceByAWSAccount(ctx, accountID, region); err == nil {
-				service = serviceInfo.ServiceName
-			}
-			// Ignore registry errors - fall through to name parsing
-		}
-
-		// Final fallback: extract from resource name or ARN
-		if service == "" {
-			service = extractServiceFromName(resourceName)
-		}
-	}
-
-	// Extract brand (using configurable tag keys)
-	brand := s.tagConfig.GetBrandTag(tags)
-
-	resource := &types.Resource{
-		ID:             resourceARN,
-		Name:           resourceName,
-		Type:           types.ResourceTypeElastiCache,
-		CloudProvider:  types.CloudProviderAWS,
-		Service:        service,
-		CloudAccountID: accountID,
-		CloudRegion:    region,
-		Brand:          brand,
-		CurrentVersion: version,
-		Engine:         engine,
-		Tags:           tags,
-		DiscoveredAt:   time.Now(),
-	}
-
-	return resource, nil
+	return parseAWSResourceRow(ctx, cols, row, types.ResourceTypeElastiCache, normalizeElastiCacheKind, s.tagConfig, s.registryClient)
 }
 
 // normalizeElastiCacheKind converts Wiz typeFields.kind values to standard engine names
