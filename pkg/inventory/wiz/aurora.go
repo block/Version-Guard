@@ -4,29 +4,23 @@ import (
 	"context"
 	"fmt"
 	"strings"
-	"time"
-
-	"github.com/aws/aws-sdk-go-v2/aws/arn"
-	"github.com/pkg/errors"
 
 	"github.com/block/Version-Guard/pkg/registry"
 	"github.com/block/Version-Guard/pkg/types"
 )
 
-// Wiz CSV column indices for Aurora/RDS resources
-// These match the saved report with columns:
-// externalId, name, nativeType, cloudAccount.externalId, versionDetails.version, region, tags, typeFields.kind
-const (
-	colARN           = 0 // externalId (ARN)
-	colResourceName  = 1 // name
-	colNativeType    = 2 // nativeType (e.g., "rds/AmazonAuroraMySQL/cluster")
-	colAWSAccountID  = 3 // cloudAccount.externalId
-	colEngineVersion = 4 // versionDetails.version
-	colRegion        = 5 // region
-	colTags          = 6 // tags JSON
-	colEngineKind    = 7 // typeFields.kind (e.g., "AmazonAuroraMySQL")
-	colMinRequired   = 8 // minimum number of columns expected
-)
+// auroraRequiredColumns lists the CSV header names that must be present
+// in a Wiz Aurora/RDS saved report.
+var auroraRequiredColumns = []string{
+	colHeaderExternalID,
+	colHeaderName,
+	colHeaderNativeType,
+	colHeaderAccountID,
+	colHeaderVersion,
+	colHeaderRegion,
+	colHeaderTags,
+	colHeaderEngineKind,
+}
 
 // AuroraInventorySource fetches Aurora/RDS cluster inventory from Wiz saved reports
 //
@@ -85,10 +79,10 @@ func (s *AuroraInventorySource) ListResources(ctx context.Context, resourceType 
 		ctx,
 		s.client,
 		s.reportID,
-		colMinRequired, // Minimum required columns
-		func(row []string) bool {
+		auroraRequiredColumns,
+		func(cols columnIndex, row []string) bool {
 			// Filter for Aurora clusters only
-			return isAuroraResource(row[colNativeType])
+			return isAuroraResource(cols.col(row, colHeaderNativeType))
 		},
 		s.parseAuroraRow,
 	)
@@ -113,73 +107,8 @@ func (s *AuroraInventorySource) GetResource(ctx context.Context, resourceType ty
 }
 
 // parseAuroraRow parses a single CSV row into a Resource
-func (s *AuroraInventorySource) parseAuroraRow(ctx context.Context, row []string) (*types.Resource, error) {
-	resourceARN := row[colARN]
-	if resourceARN == "" {
-		return nil, fmt.Errorf("missing ARN")
-	}
-
-	// Parse ARN
-	parsedARN, err := arn.Parse(resourceARN)
-	if err != nil {
-		return nil, errors.Wrapf(err, "invalid ARN: %s", resourceARN)
-	}
-
-	// Extract metadata
-	resourceName := row[colResourceName]
-	accountID := row[colAWSAccountID]
-	if accountID == "" {
-		accountID = parsedARN.AccountID
-	}
-
-	engine := normalizeEngineKind(row[colEngineKind])
-	version := row[colEngineVersion]
-	region := row[colRegion]
-
-	// Parse tags
-	tagsJSON := row[colTags]
-	tags, err := ParseTags(tagsJSON)
-	if err != nil {
-		// Non-fatal, just use empty tags
-		tags = make(map[string]string)
-	}
-
-	// Extract service name from tags (using configurable tag keys)
-	service := s.tagConfig.GetAppTag(tags)
-	if service == "" {
-		// Try registry lookup by AWS account (if registry is configured)
-		if s.registryClient != nil {
-			if serviceInfo, err := s.registryClient.GetServiceByAWSAccount(ctx, accountID, region); err == nil {
-				service = serviceInfo.ServiceName
-			}
-			// Ignore registry errors - fall through to name parsing
-		}
-
-		// Final fallback: extract from resource name or ARN
-		if service == "" {
-			service = extractServiceFromName(resourceName)
-		}
-	}
-
-	// Extract brand (using configurable tag keys)
-	brand := s.tagConfig.GetBrandTag(tags)
-
-	resource := &types.Resource{
-		ID:             resourceARN,
-		Name:           resourceName,
-		Type:           types.ResourceTypeAurora,
-		CloudProvider:  types.CloudProviderAWS,
-		Service:        service,
-		CloudAccountID: accountID,
-		CloudRegion:    region,
-		Brand:          brand,
-		CurrentVersion: version,
-		Engine:         engine,
-		Tags:           tags,
-		DiscoveredAt:   time.Now(),
-	}
-
-	return resource, nil
+func (s *AuroraInventorySource) parseAuroraRow(ctx context.Context, cols columnIndex, row []string) (*types.Resource, error) {
+	return parseAWSResourceRow(ctx, cols, row, types.ResourceTypeAurora, normalizeEngineKind, s.tagConfig, s.registryClient)
 }
 
 // normalizeEngineKind converts Wiz typeFields.kind values to standard engine names
