@@ -90,7 +90,7 @@ func TestIsEnvironmentSuffix(t *testing.T) {
 		{"production", true},
 		{"test", true},
 		{"qa", true},
-		{"PROD", true},      // case insensitive
+		{"PROD", true},       // case insensitive
 		{"Production", true}, // case insensitive
 		{"other", false},
 		{"service", false},
@@ -121,8 +121,8 @@ func TestIsCommonSuffix(t *testing.T) {
 		{"redis", true},
 		{"memcached", true},
 		{"valkey", true},
-		{"CLUSTER", true},    // case insensitive
-		{"Database", true},   // case insensitive
+		{"CLUSTER", true},  // case insensitive
+		{"Database", true}, // case insensitive
 		{"service", false},
 		{"other", false},
 		{"", false},
