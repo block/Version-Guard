@@ -16,7 +16,8 @@ import (
 )
 
 const (
-	resourceTypeEKS = "eks"
+	resourceTypeEKS        = "eks"
+	resourceTypeOpenSearch = "opensearch"
 )
 
 // contextKey is a custom type for context keys to avoid collisions
@@ -152,9 +153,21 @@ func (s *GenericInventorySource) getRequiredColumns() []string {
 	return columns
 }
 
-// matchesNativeTypePattern checks if nativeType matches the configured pattern
+// matchesNativeTypePattern checks if nativeType matches the configured pattern.
+// Supports exact match, wildcard patterns (e.g., "elastiCache/*/cluster"),
+// and pipe-delimited alternatives (e.g., "elasticSearchService|OpenSearch Domain").
 func (s *GenericInventorySource) matchesNativeTypePattern(nativeType string) bool {
 	pattern := s.config.Inventory.NativeTypePattern
+
+	// Handle pipe-delimited alternatives (e.g., "typeA|typeB")
+	if strings.Contains(pattern, "|") {
+		for _, alt := range strings.Split(pattern, "|") {
+			if nativeType == alt {
+				return true
+			}
+		}
+		return false
+	}
 
 	// Handle wildcard patterns (e.g., "elastiCache/*/cluster")
 	if strings.Contains(pattern, "*") {
@@ -221,6 +234,12 @@ func (s *GenericInventorySource) parseResourceRow(
 	// Normalize engine
 	engine = normalizeEngine(engine, s.config.Type)
 
+	// OpenSearch-specific: normalize version and detect legacy Elasticsearch
+	if s.config.Type == resourceTypeOpenSearch {
+		version = normalizeOpenSearchVersion(version)
+		engine = detectOpenSearchEngine(version)
+	}
+
 	// Parse tags to extract service, brand
 	tagsJSON := cols.col(row, colHeaderTags)
 	tags, err := ParseTags(tagsJSON)
@@ -285,6 +304,30 @@ func getReportIDFromMap(resourceID string) (string, error) {
 	}
 
 	return reportID, nil
+}
+
+// normalizeOpenSearchVersion strips engine prefixes from OpenSearch/Elasticsearch
+// version strings (e.g., "OpenSearch_2.13" → "2.13", "Elasticsearch_7.10" → "7.10").
+func normalizeOpenSearchVersion(version string) string {
+	version = strings.TrimPrefix(version, "OpenSearch_")
+	version = strings.TrimPrefix(version, "Elasticsearch_")
+	return version
+}
+
+// detectOpenSearchEngine returns "elasticsearch" for legacy Elasticsearch versions
+// (5.x, 6.x, 7.x) and "opensearch" for OpenSearch versions (1.x, 2.x, 3.x+).
+// OpenSearch forked from Elasticsearch 7.10, so versions ≤7.x are Elasticsearch.
+func detectOpenSearchEngine(version string) string {
+	if version == "" {
+		return resourceTypeOpenSearch
+	}
+	major := strings.SplitN(version, ".", 2)[0]
+	switch major {
+	case "5", "6", "7":
+		return "elasticsearch"
+	default:
+		return resourceTypeOpenSearch
+	}
 }
 
 // normalizeEngine normalizes engine names based on resource type

@@ -70,6 +70,7 @@ func OrchestratorWorkflow(ctx workflow.Context, input WorkflowInput) (*WorkflowO
 			"aurora",
 			"elasticache",
 			"eks",
+			"opensearch",
 		}
 	}
 

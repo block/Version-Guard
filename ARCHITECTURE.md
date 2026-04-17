@@ -9,8 +9,8 @@
 - ✅ **ElastiCache (Redis/Valkey/Memcached)** - Production tested
 
 **Planned Resources** (add ~15 lines to `config/resources.yaml`):
+- ✅ **OpenSearch** - Production tested (auto-detects legacy Elasticsearch versions)
 - 📋 RDS MySQL/PostgreSQL
-- 📋 OpenSearch
 - 📋 Lambda runtimes
 
 ---
@@ -35,7 +35,7 @@
 **Vision:** Version Guard is a **cloud-agnostic** version drift detection platform supporting multiple cloud providers.
 
 ### Phase 1 (Implemented): AWS
-- **Resources**: ✅ Aurora MySQL (production tested), ✅ Aurora PostgreSQL (config ready), ✅ EKS (production tested), ✅ ElastiCache (production tested), 📋 RDS, 📋 OpenSearch, 📋 Lambda
+- **Resources**: ✅ Aurora MySQL (production tested), ✅ Aurora PostgreSQL (config ready), ✅ EKS (production tested), ✅ ElastiCache (production tested), ✅ OpenSearch (production tested), 📋 RDS, 📋 Lambda
 - **Inventory**: Wiz saved reports (primary) + Custom sources (extensible)
 - **EOL Data**: endoflife.date API (404 graceful degradation for products not yet listed)
 
