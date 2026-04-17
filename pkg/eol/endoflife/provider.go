@@ -33,8 +33,8 @@ var ProductMapping = map[string]string{
 	"valkey":             "valkey",
 	"elasticache-valkey": "valkey",
 
-	"opensearch":     "amazon-opensearch",
-	"elasticsearch":  "elasticsearch",
+	"opensearch":    "amazon-opensearch",
+	"elasticsearch": "elasticsearch",
 }
 
 const (
