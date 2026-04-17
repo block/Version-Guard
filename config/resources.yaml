@@ -71,6 +71,23 @@ resources:
       product: redis
       schema: standard
 
+  - id: opensearch
+    type: opensearch
+    cloud_provider: aws
+    inventory:
+      source: wiz
+      native_type_pattern: "elasticSearchService|OpenSearch Domain"
+      field_mappings:
+        version: "versionDetails.version"
+        region: "region"
+        account_id: "cloudAccount.externalId"
+        name: "name"
+        external_id: "externalId"
+    eol:
+      provider: endoflife-date
+      product: amazon-opensearch
+      schema: standard
+
   # Add more resources using the add-version-guard-resource skill
   #
   # Configuration:

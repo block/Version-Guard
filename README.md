@@ -70,9 +70,9 @@ Version Guard uses a **config-driven approach** - resources are defined in `conf
 | **ElastiCache** (Redis/Valkey/Memcached) | Wiz | [amazon-elasticache-redis](https://endoflife.date/amazon-elasticache-redis), [valkey](https://endoflife.date/valkey) | ✅ Production tested |
 | **Aurora MySQL** | Wiz | [amazon-aurora-mysql](https://endoflife.date/amazon-aurora-mysql) | ⚠️ Production tested, EOL data pending [endoflife.date#9534](https://github.com/endoflife-date/endoflife.date/pull/9534) |
 | **Aurora PostgreSQL** | Wiz | [amazon-aurora-postgresql](https://endoflife.date/amazon-aurora-postgresql) | 🔜 Config ready, needs Wiz report ID |
+| **OpenSearch** | Wiz | [amazon-opensearch](https://endoflife.date/amazon-opensearch), [elasticsearch](https://endoflife.date/elasticsearch) | ✅ Production tested |
 | **RDS MySQL** | — | [amazon-rds-mysql](https://endoflife.date/amazon-rds-mysql) | 📋 Planned (add to config) |
 | **RDS PostgreSQL** | — | [amazon-rds-postgresql](https://endoflife.date/amazon-rds-postgresql) | 📋 Planned (add to config) |
-| **OpenSearch** | — | [amazon-opensearch](https://endoflife.date/amazon-opensearch) | 📋 Planned (add to config) |
 | **Lambda** | — | [aws-lambda](https://endoflife.date/aws-lambda) | 📋 Planned (add to config) |
 
 **Adding a new resource type requires:**
