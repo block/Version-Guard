@@ -25,7 +25,7 @@ type columnIndex map[string]int
 var columnAliases = map[string]string{
 	"versionDetails.version":  "version",
 	"region":                  "regionLocation",
-	"cloudAccount.externalId": "subscriptionExternalId",
+	"cloudAccount.externalId": "cloudPlatform",
 	"name":                    "Name",
 }
 

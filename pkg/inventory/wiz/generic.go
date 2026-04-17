@@ -207,10 +207,7 @@ func (s *GenericInventorySource) parseResourceRow(
 		name = externalID // Fallback to ID if name is empty
 	}
 
-	accountID, err := cols.require(row, colHeaderAccountID)
-	if err != nil {
-		return nil, err
-	}
+	accountID := cols.col(row, colHeaderAccountID)
 
 	region := cols.col(row, colHeaderRegion)
 
