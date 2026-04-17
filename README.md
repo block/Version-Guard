@@ -262,7 +262,33 @@ Version Guard is configured via environment variables or CLI flags:
 | `TAG_APP_KEYS` | Comma-separated AWS tag keys for app/service | `app,application,service` |
 | `TAG_ENV_KEYS` | Comma-separated AWS tag keys for environment | `environment,env` |
 | `TAG_BRAND_KEYS` | Comma-separated AWS tag keys for brand/business unit | `brand` |
+| `SCHEDULE_ENABLED` | Enable automatic scheduled scanning | `false` |
+| `SCHEDULE_CRON` | Cron expression for scan schedule | `0 6 * * *` (daily 06:00 UTC) |
+| `SCHEDULE_ID` | Temporal schedule ID (stable across restarts) | `version-guard-scan` |
+| `SCHEDULE_JITTER` | Random jitter to prevent thundering herd | `5m` |
 | `--verbose` / `-v` | Enable debug-level logging | `false` |
+
+**Scheduled Scanning:**
+
+Version Guard can automatically run scans on a cron schedule using the Temporal Schedule API. Disabled by default — enable with `SCHEDULE_ENABLED=true`:
+
+```bash
+# Enable daily scans at 06:00 UTC (default)
+export SCHEDULE_ENABLED=true
+
+# Or customize the schedule
+export SCHEDULE_ENABLED=true
+export SCHEDULE_CRON="*/30 * * * *"  # Every 30 minutes
+export SCHEDULE_JITTER="2m"
+```
+
+The schedule uses a create-or-update pattern — safe to restart the server without creating duplicate schedules. If the cron expression changes, the existing schedule is updated automatically.
+
+```bash
+# Verify the schedule
+temporal schedule list --namespace version-guard-dev
+temporal schedule describe --schedule-id version-guard-scan --namespace version-guard-dev
+```
 
 **Customizing AWS Tag Keys:**
 
