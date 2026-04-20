@@ -226,6 +226,25 @@ func (s *GenericInventorySource) parseResourceRow(
 		engine = cols.col(row, engineField)
 	}
 
+	// Lambda-specific: extract runtime from graphEntity.properties JSON.
+	// The runtime string (e.g., "python3.12", "nodejs20.x") is the cycle
+	// identifier on endoflife.date's aws-lambda product, so it becomes the
+	// version. The engine is always "aws-lambda".
+	//
+	// Container-image Lambdas have runtime=null in Wiz because the runtime
+	// is baked into the Docker image, not managed by AWS. Since AWS doesn't
+	// EOL container-image Lambdas (there's no runtime deprecation date),
+	// they're out of scope — skip them to avoid noise in findings.
+	if s.config.Type == resourceTypeLambda {
+		propsJSON := cols.col(row, colHeaderGraphProperties)
+		runtime := extractLambdaRuntime(propsJSON)
+		if runtime == "" {
+			return nil, nil
+		}
+		version = runtime
+		engine = "aws-lambda"
+	}
+
 	// For EKS, default to "eks" if no engine field is mapped
 	if s.config.Type == resourceTypeEKS && engine == "" {
 		engine = resourceTypeEKS
@@ -238,18 +257,6 @@ func (s *GenericInventorySource) parseResourceRow(
 	if s.config.Type == resourceTypeOpenSearch {
 		version = normalizeOpenSearchVersion(version)
 		engine = detectOpenSearchEngine(version)
-	}
-
-	// Lambda-specific: extract runtime from graphEntity.properties JSON.
-	// The runtime string (e.g., "python3.12", "nodejs20.x") is the cycle
-	// identifier on endoflife.date's aws-lambda product, so it becomes the
-	// version. The engine is always "aws-lambda".
-	if s.config.Type == resourceTypeLambda {
-		propsJSON := cols.col(row, colHeaderGraphProperties)
-		if runtime := extractLambdaRuntime(propsJSON); runtime != "" {
-			version = runtime
-			engine = "aws-lambda"
-		}
 	}
 
 	// Parse tags to extract service, brand

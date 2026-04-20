@@ -62,13 +62,14 @@ arn:aws:elasticache:eu-west-1:345678901234:cluster:user-valkey-001,user-valkey-0
 	},
 
 	// Realistic Wiz CSV export for Lambda functions
-	// Columns: externalId, name, nativeType, cloudAccount.externalId, versionDetails.version, region, tags, typeFields.kind, graphEntity.properties
-	LambdaCSVData: `externalId,name,nativeType,cloudAccount.externalId,versionDetails.version,region,tags,typeFields.kind,graphEntity.properties
-arn:aws:lambda:us-east-1:123456789012:function:legacy-python38,legacy-python38,lambda/Python/function,123456789012,3.8,us-east-1,"[{""key"":""app"",""value"":""legacy-payments""},{""key"":""environment"",""value"":""production""},{""key"":""brand"",""value"":""brand-a""}]",,"{""runtime"":""python3.8"",""memorySize"":256,""timeout"":30}"
-arn:aws:lambda:us-east-1:123456789012:function:billing-node20,billing-node20,lambda/NodeJs/function,123456789012,20,us-east-1,"[{""key"":""application"",""value"":""billing""},{""key"":""env"",""value"":""production""}]",,"{""runtime"":""nodejs20.x"",""memorySize"":512,""timeout"":60}"
-arn:aws:lambda:us-west-2:789012345678:function:payments-java21,payments-java21,lambda/Java/function,789012345678,21,us-west-2,"[{""key"":""app"",""value"":""payments""},{""key"":""team"",""value"":""team-a""}]",,"{""runtime"":""java21"",""memorySize"":1024,""timeout"":120}"
-arn:aws:lambda:eu-west-1:345678901234:function:custom-runtime,custom-runtime,lambda/Custom/function,345678901234,,eu-west-1,"[{""key"":""app"",""value"":""user-service""},{""key"":""brand"",""value"":""brand-c""}]",,"{""runtime"":""provided.al2023"",""memorySize"":128,""timeout"":15}"
-arn:aws:lambda:us-east-1:123456789012:function:no-runtime-props,no-runtime-props,lambda/Python/function,123456789012,3.12,us-east-1,"[{""key"":""app"",""value"":""analytics""}]",,"{""memorySize"":256}"
+	// nativeType is "lambda" for all functions (verified against production Wiz data).
+	// Columns: externalId, name, nativeType, cloudAccount.externalId, region, tags, graphEntity.properties
+	LambdaCSVData: `externalId,name,nativeType,cloudAccount.externalId,region,tags,graphEntity.properties
+arn:aws:lambda:us-east-1:123456789012:function:legacy-python38,legacy-python38,lambda,123456789012,us-east-1,"[{""key"":""app"",""value"":""legacy-payments""},{""key"":""environment"",""value"":""production""},{""key"":""brand"",""value"":""brand-a""}]","{""runtime"":""python3.8"",""memorySize"":256,""timeout"":30}"
+arn:aws:lambda:us-east-1:123456789012:function:billing-node20,billing-node20,lambda,123456789012,us-east-1,"[{""key"":""application"",""value"":""billing""},{""key"":""env"",""value"":""production""}]","{""runtime"":""nodejs20.x"",""memorySize"":512,""timeout"":60}"
+arn:aws:lambda:us-west-2:789012345678:function:payments-java21,payments-java21,lambda,789012345678,us-west-2,"[{""key"":""app"",""value"":""payments""},{""key"":""team"",""value"":""team-a""}]","{""runtime"":""java21"",""memorySize"":1024,""timeout"":120}"
+arn:aws:lambda:eu-west-1:345678901234:function:custom-runtime,custom-runtime,lambda,345678901234,eu-west-1,"[{""key"":""app"",""value"":""user-service""},{""key"":""brand"",""value"":""brand-c""}]","{""runtime"":""provided.al2023"",""memorySize"":128,""timeout"":15}"
+arn:aws:lambda:us-east-1:123456789012:function:no-runtime-props,no-runtime-props,lambda,123456789012,us-east-1,"[{""key"":""app"",""value"":""analytics""}]","{""memorySize"":256}"
 `,
 
 	EmptyCSVData: `externalId,name,nativeType,cloudAccount.externalId,versionDetails.version,region,tags,typeFields.kind

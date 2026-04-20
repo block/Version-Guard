@@ -594,9 +594,8 @@ func TestParseResourceRow_Lambda(t *testing.T) {
 		colHeaderName:            1,
 		colHeaderAccountID:       2,
 		colHeaderRegion:          3,
-		"versionDetails.version": 4,
-		colHeaderTags:            5,
-		colHeaderGraphProperties: 6,
+		colHeaderTags:            4,
+		colHeaderGraphProperties: 5,
 	}
 
 	tagsJSON := `[{"key":"app","value":"my-function"},{"key":"brand","value":"brand-a"}]`
@@ -606,7 +605,6 @@ func TestParseResourceRow_Lambda(t *testing.T) {
 		"my-func",      // name
 		"123456789012", // account_id
 		"us-east-1",    // region
-		"3.12",         // version (ambiguous without runtime)
 		tagsJSON,       // tags
 		`{"runtime":"python3.12","memorySize":256}`, // graphEntity.properties
 	}
@@ -621,7 +619,6 @@ func TestParseResourceRow_Lambda(t *testing.T) {
 	assert.Equal(t, types.CloudProviderAWS, resource.CloudProvider)
 	assert.Equal(t, "123456789012", resource.CloudAccountID)
 	assert.Equal(t, "us-east-1", resource.CloudRegion)
-	// Version should be the runtime, not the ambiguous versionDetails.version
 	assert.Equal(t, "python3.12", resource.CurrentVersion)
 	assert.Equal(t, "aws-lambda", resource.Engine)
 	assert.Equal(t, "my-function", resource.Service)
@@ -650,9 +647,8 @@ func TestParseResourceRow_LambdaNoRuntime(t *testing.T) {
 		colHeaderName:            1,
 		colHeaderAccountID:       2,
 		colHeaderRegion:          3,
-		"versionDetails.version": 4,
-		colHeaderTags:            5,
-		colHeaderGraphProperties: 6,
+		colHeaderTags:            4,
+		colHeaderGraphProperties: 5,
 	}
 
 	row := []string{
@@ -660,7 +656,6 @@ func TestParseResourceRow_LambdaNoRuntime(t *testing.T) {
 		"no-runtime",
 		"123456789012",
 		"us-east-1",
-		"3.12",
 		"[]",
 		`{"memorySize":256}`, // No runtime field
 	}
@@ -668,10 +663,9 @@ func TestParseResourceRow_LambdaNoRuntime(t *testing.T) {
 	ctx := context.Background()
 	resource, err := source.parseResourceRow(ctx, cols, row)
 
+	// Container-image Lambdas (runtime=null) are skipped — AWS doesn't EOL them
 	require.NoError(t, err)
-	// Without runtime in graphEntity.properties, falls back to empty version/engine
-	assert.Equal(t, "", resource.CurrentVersion)
-	assert.Equal(t, "", resource.Engine)
+	assert.Nil(t, resource)
 }
 
 func TestGetRequiredColumns_Lambda(t *testing.T) {
@@ -695,7 +689,8 @@ func TestGetRequiredColumns_Lambda(t *testing.T) {
 }
 
 func TestListResources_LambdaFixture(t *testing.T) {
-	// End-to-end test using the Lambda CSV fixture data
+	// End-to-end test using the Lambda CSV fixture data.
+	// Fixture nativeTypes are "lambda" (exact match), matching production Wiz data.
 	mockWizClient := new(MockWizClient)
 	mockWizClient.On("GetAccessToken", mock.Anything).Return("test-token", nil)
 	mockWizClient.On("GetReport", mock.Anything, "test-token", "lambda-report-id").
@@ -730,36 +725,9 @@ func TestListResources_LambdaFixture(t *testing.T) {
 	resources, err := source.ListResources(context.Background(), types.ResourceTypeLambda)
 	require.NoError(t, err)
 
-	// Fixture has 5 rows, all with nativeType "lambda" (but we set pattern to match)
-	// However nativeType in fixture is "lambda/Python/function" etc — let's check
-	// The fixture uses nativeType patterns like "lambda/Python/function"
-	// Our pattern is "lambda" (exact match), so only rows with nativeType=="lambda" match.
-	// Since the fixture uses "lambda/Python/function", "lambda/NodeJs/function", etc.,
-	// none will match exact "lambda". Let's verify the fixture nativeTypes.
-
-	// Actually, let me check — the fixture was designed with wildcard patterns.
-	// For the integration test, we need to match the fixture's nativeTypes.
-	// The fixture has: lambda/Python/function, lambda/NodeJs/function, etc.
-	// But production data uses just "lambda". Let's test with wildcard pattern.
-	assert.Empty(t, resources) // exact "lambda" won't match "lambda/Python/function"
-
-	// Now test with wildcard pattern matching the fixture data
-	cfg.Inventory.NativeTypePattern = "lambda/*/function"
-	source = NewGenericInventorySource(wizClient, &cfg, nil, nil)
-
-	// Need fresh Wiz client mock since cache is keyed by report ID
-	mockWizClient2 := new(MockWizClient)
-	mockWizClient2.On("GetAccessToken", mock.Anything).Return("test-token", nil)
-	mockWizClient2.On("GetReport", mock.Anything, "test-token", "lambda-report-id").
-		Return(WizAPIFixtures.LambdaReport, nil)
-	mockWizClient2.On("DownloadReport", mock.Anything, WizAPIFixtures.LambdaReport.DownloadURL).
-		Return(NewMockReadCloser(WizAPIFixtures.LambdaCSVData), nil)
-	wizClient2 := NewClient(mockWizClient2, time.Hour)
-	source = NewGenericInventorySource(wizClient2, &cfg, nil, nil)
-
-	resources, err = source.ListResources(context.Background(), types.ResourceTypeLambda)
-	require.NoError(t, err)
-	require.Len(t, resources, 5)
+	// 4 of 5 fixture rows have a runtime; the no-runtime row is skipped
+	// because container-image Lambdas are out of scope for EOL detection.
+	require.Len(t, resources, 4)
 
 	// Verify runtime extraction for each resource
 	runtimeMap := make(map[string]string)
@@ -771,17 +739,15 @@ func TestListResources_LambdaFixture(t *testing.T) {
 	assert.Equal(t, "nodejs20.x", runtimeMap["billing-node20"])
 	assert.Equal(t, "java21", runtimeMap["payments-java21"])
 	assert.Equal(t, "provided.al2023", runtimeMap["custom-runtime"])
-	// no-runtime-props has no runtime field in graphEntity.properties
-	assert.Equal(t, "", runtimeMap["no-runtime-props"])
+	// no-runtime-props is excluded — container-image Lambda, no EOL to track
+	assert.Empty(t, runtimeMap["no-runtime-props"])
 
-	// All resources with a runtime should have engine "aws-lambda"
+	// All returned resources should have engine "aws-lambda"
 	for _, r := range resources {
-		if r.CurrentVersion != "" {
-			assert.Equal(t, "aws-lambda", r.Engine, "resource %s should have engine aws-lambda", r.Name)
-		}
+		assert.Equal(t, "aws-lambda", r.Engine, "resource %s should have engine aws-lambda", r.Name)
 	}
 
-	mockWizClient2.AssertExpectations(t)
+	mockWizClient.AssertExpectations(t)
 }
 
 func TestParseResourceRow_WithContextTime(t *testing.T) {
