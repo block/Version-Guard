@@ -1,0 +1,109 @@
+// Package scan provides a reusable entry point for triggering a Version Guard
+// scan (an OrchestratorWorkflow execution) from any caller (CLI, HTTP handler,
+// etc.). It encapsulates workflow ID generation, input shaping, and Temporal
+// client invocation so callers do not need to depend on Temporal internals.
+package scan
+
+import (
+	"context"
+	"fmt"
+	"time"
+
+	"github.com/google/uuid"
+	"go.temporal.io/sdk/client"
+
+	"github.com/block/Version-Guard/pkg/types"
+	"github.com/block/Version-Guard/pkg/workflow/orchestrator"
+)
+
+// Default workflow execution timeout for a manually triggered scan.
+// Matches the value used by the scheduled trigger in pkg/schedule.
+const defaultExecutionTimeout = 2 * time.Hour
+
+// Starter abstracts the subset of client.Client used to start a workflow,
+// so callers can be tested without a real Temporal connection.
+type Starter interface {
+	ExecuteWorkflow(
+		ctx context.Context,
+		options client.StartWorkflowOptions,
+		workflow interface{},
+		args ...interface{},
+	) (client.WorkflowRun, error)
+}
+
+// Trigger starts an OrchestratorWorkflow execution on demand.
+type Trigger struct {
+	starter   Starter
+	taskQueue string
+}
+
+// NewTrigger returns a Trigger backed by the given Temporal client.
+// taskQueue must be the task queue the orchestrator worker is listening on.
+func NewTrigger(c client.Client, taskQueue string) *Trigger {
+	return &Trigger{starter: c, taskQueue: taskQueue}
+}
+
+// NewTriggerWithStarter returns a Trigger backed by an explicit Starter
+// (used for testing).
+func NewTriggerWithStarter(s Starter, taskQueue string) *Trigger {
+	return &Trigger{starter: s, taskQueue: taskQueue}
+}
+
+// Input controls the scope of a manual scan.
+type Input struct {
+	// ScanID lets the caller pin a correlation ID. If empty, one is generated.
+	ScanID string
+
+	// ResourceTypes limits the scan to the given resource config IDs
+	// (e.g. "aurora-mysql", "eks"). Empty means scan all configured resources.
+	ResourceTypes []types.ResourceType
+}
+
+// Result describes a started scan.
+type Result struct {
+	WorkflowID string
+	RunID      string
+	ScanID     string
+}
+
+// Run starts an OrchestratorWorkflow and returns identifiers describing the
+// running execution. It does not wait for completion.
+func (t *Trigger) Run(ctx context.Context, in Input) (Result, error) {
+	if t.taskQueue == "" {
+		return Result{}, fmt.Errorf("scan: task queue is required")
+	}
+
+	scanID := in.ScanID
+	if scanID == "" {
+		scanID = uuid.NewString()
+	}
+
+	workflowID := buildWorkflowID(scanID)
+
+	opts := client.StartWorkflowOptions{
+		ID:                       workflowID,
+		TaskQueue:                t.taskQueue,
+		WorkflowExecutionTimeout: defaultExecutionTimeout,
+	}
+
+	run, err := t.starter.ExecuteWorkflow(ctx, opts, orchestrator.OrchestratorWorkflow, orchestrator.WorkflowInput{
+		ScanID:        scanID,
+		ResourceTypes: in.ResourceTypes,
+	})
+	if err != nil {
+		return Result{}, fmt.Errorf("scan: execute workflow: %w", err)
+	}
+
+	return Result{
+		WorkflowID: run.GetID(),
+		RunID:      run.GetRunID(),
+		ScanID:     scanID,
+	}, nil
+}
+
+// buildWorkflowID produces a workflow ID that is distinguishable from
+// scheduled executions. Scheduled runs use the schedule's generated IDs;
+// manual runs are prefixed so they are easy to find in Temporal UI/CLI.
+func buildWorkflowID(scanID string) string {
+	return fmt.Sprintf("version-guard-scan-%s", scanID)
+}

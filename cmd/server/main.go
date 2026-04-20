@@ -2,8 +2,10 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"os"
 	"os/signal"
 	"strings"
@@ -27,6 +29,7 @@ import (
 	"github.com/block/Version-Guard/pkg/inventory/wiz"
 	"github.com/block/Version-Guard/pkg/policy"
 	"github.com/block/Version-Guard/pkg/registry"
+	"github.com/block/Version-Guard/pkg/scan"
 	"github.com/block/Version-Guard/pkg/schedule"
 	"github.com/block/Version-Guard/pkg/snapshot"
 	"github.com/block/Version-Guard/pkg/store/memory"
@@ -67,6 +70,7 @@ type ServerCLI struct {
 
 	// Service configuration
 	GRPCPort int `help:"gRPC service port" default:"8080" env:"GRPC_PORT"`
+	HTTPPort int `help:"HTTP admin port (POST /scan)" default:"8081" env:"HTTP_PORT"`
 
 	// Tag configuration (comma-separated lists for AWS resource tags)
 	TagAppKeys   string `help:"Comma-separated tag keys for application/service name" default:"app,application,service" env:"TAG_APP_KEYS"`
@@ -112,6 +116,7 @@ func (s *ServerCLI) buildTagConfig() *wiz.TagConfig {
 	}
 }
 
+//nolint:gocognit,gocyclo // startup wires many optional components; splitting further would fragment a linear init sequence
 func (s *ServerCLI) Run(_ *kong.Context) error {
 	// Initialize structured logger
 	logLevel := slog.LevelInfo
@@ -363,30 +368,11 @@ func (s *ServerCLI) Run(_ *kong.Context) error {
 
 	// Create schedule (if enabled)
 	if s.ScheduleEnabled {
-		jitter, parseErr := time.ParseDuration(s.ScheduleJitter)
-		if parseErr != nil {
-			fmt.Printf("⚠️  Invalid schedule jitter %q, using default 5m: %v\n", s.ScheduleJitter, parseErr)
-			jitter = 5 * time.Minute
-		}
-
-		scheduleMgr := schedule.NewManager(temporalClient)
-		schedCtx, schedCancel := context.WithTimeout(ctx, 10*time.Second)
-		defer schedCancel()
-		schedErr := scheduleMgr.EnsureSchedule(schedCtx, schedule.Config{
-			Enabled:        true,
-			ScheduleID:     s.ScheduleID,
-			CronExpression: s.ScheduleCron,
-			Jitter:         jitter,
-			TaskQueue:      s.TemporalTaskQueue,
-		})
-		if schedErr != nil {
-			fmt.Printf("⚠️  Failed to create/update schedule: %v\n", schedErr)
-			fmt.Println("   Worker will continue — trigger scans manually")
-		} else {
-			fmt.Printf("✓ Schedule configured: %s (cron: %s, jitter: %s)\n",
-				s.ScheduleID, s.ScheduleCron, s.ScheduleJitter)
-		}
+		s.ensureSchedule(ctx, temporalClient)
 	}
+
+	// Start HTTP admin server (POST /scan to trigger manual scans)
+	httpServer := startAdminHTTPServer(s.HTTPPort, temporalClient, s.TemporalTaskQueue)
 
 	// Start worker
 	fmt.Printf("\n✓ Temporal worker starting on queue: %s\n", s.TemporalTaskQueue)
@@ -412,11 +398,71 @@ func (s *ServerCLI) Run(_ *kong.Context) error {
 
 	fmt.Println("\n\nShutting down gracefully...")
 	w.Stop()
+
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := httpServer.Shutdown(shutdownCtx); err != nil {
+		fmt.Printf("HTTP server shutdown error: %v\n", err)
+	}
+
 	//nolint:gocritic // Intentionally commented - template for future gRPC implementation
 	// grpcServer.GracefulStop() // Uncomment when gRPC server is enabled
 	fmt.Println("✓ Shutdown complete")
 
 	return nil
+}
+
+// ensureSchedule creates or updates the Temporal schedule for periodic scans.
+// Failures are logged but do not abort startup; the worker can still service
+// manual scans triggered via the HTTP endpoint or CLI.
+func (s *ServerCLI) ensureSchedule(ctx context.Context, temporalClient client.Client) {
+	jitter, parseErr := time.ParseDuration(s.ScheduleJitter)
+	if parseErr != nil {
+		fmt.Printf("⚠️  Invalid schedule jitter %q, using default 5m: %v\n", s.ScheduleJitter, parseErr)
+		jitter = 5 * time.Minute
+	}
+
+	scheduleMgr := schedule.NewManager(temporalClient)
+	schedCtx, schedCancel := context.WithTimeout(ctx, 10*time.Second)
+	defer schedCancel()
+	schedErr := scheduleMgr.EnsureSchedule(schedCtx, schedule.Config{
+		Enabled:        true,
+		ScheduleID:     s.ScheduleID,
+		CronExpression: s.ScheduleCron,
+		Jitter:         jitter,
+		TaskQueue:      s.TemporalTaskQueue,
+	})
+	if schedErr != nil {
+		fmt.Printf("⚠️  Failed to create/update schedule: %v\n", schedErr)
+		fmt.Println("   Worker will continue — trigger scans manually")
+		return
+	}
+	fmt.Printf("✓ Schedule configured: %s (cron: %s, jitter: %s)\n",
+		s.ScheduleID, s.ScheduleCron, s.ScheduleJitter)
+}
+
+// startAdminHTTPServer wires the scan trigger into an HTTP admin server and
+// starts listening in a background goroutine. The returned *http.Server can be
+// shut down gracefully by the caller.
+func startAdminHTTPServer(port int, temporalClient client.Client, taskQueue string) *http.Server {
+	scanTrigger := scan.NewTrigger(temporalClient, taskQueue)
+	mux := http.NewServeMux()
+	mux.Handle("/scan", scan.NewHandler(scanTrigger))
+
+	srv := &http.Server{
+		Addr:              fmt.Sprintf(":%d", port),
+		Handler:           mux,
+		ReadHeaderTimeout: 10 * time.Second,
+	}
+
+	go func() {
+		fmt.Printf("✓ HTTP admin server listening on :%d (POST /scan)\n", port)
+		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			fmt.Printf("HTTP server error: %v\n", err)
+		}
+	}()
+
+	return srv
 }
 
 func main() {

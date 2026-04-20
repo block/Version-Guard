@@ -1,9 +1,14 @@
 package main
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/alecthomas/kong"
+	"go.temporal.io/sdk/client"
+
+	"github.com/block/Version-Guard/pkg/scan"
+	"github.com/block/Version-Guard/pkg/types"
 )
 
 var version = "dev"
@@ -21,6 +26,11 @@ type CLI struct {
 	// Global flags
 	Endpoint string `help:"Version Guard gRPC endpoint" default:"localhost:8080" env:"VERSION_GUARD_ENDPOINT"`
 	Verbose  bool   `short:"v" help:"Enable verbose logging"`
+
+	// Temporal connection flags (used by workflow commands)
+	TemporalEndpoint  string `help:"Temporal server endpoint" default:"localhost:7233" env:"TEMPORAL_ENDPOINT"`
+	TemporalNamespace string `help:"Temporal namespace" default:"version-guard-dev" env:"TEMPORAL_NAMESPACE"`
+	TemporalTaskQueue string `help:"Temporal task queue" default:"version-guard-detection" env:"TEMPORAL_TASK_QUEUE"`
 }
 
 // VersionCmd shows version information
@@ -178,29 +188,56 @@ type WorkflowCmd struct {
 	List   WorkflowListCmd   `cmd:"" help:"List recent workflow runs"`
 }
 
-// WorkflowStartCmd starts a workflow
+// WorkflowStartCmd triggers an OrchestratorWorkflow run.
+// Omit --resource-type to scan every configured resource; pass it one or
+// more times (or comma-separate) to run a targeted scan.
 type WorkflowStartCmd struct {
-	ResourceType  string `help:"Resource type to scan (aurora, elasticache, etc.)" required:""`
-	CloudProvider string `help:"Cloud provider (aws, gcp, azure)" default:"aws"`
-	Wait          bool   `help:"Wait for workflow to complete"`
+	ScanID       string   `help:"Correlation ID for this scan (auto-generated if empty)"`
+	ResourceType []string `help:"Resource config ID to scan (repeatable, e.g. aurora-mysql,eks). Empty = full scan."`
+	Wait         bool     `help:"Wait for workflow to complete"`
 }
 
-//nolint:unparam // error return required by kong interface
-func (c *WorkflowStartCmd) Run(_ *Context) error {
-	fmt.Printf("Starting detection workflow...\n")
-	fmt.Printf("  Resource Type: %s\n", c.ResourceType)
-	fmt.Printf("  Cloud Provider: %s\n", c.CloudProvider)
+func (c *WorkflowStartCmd) Run(ctx *Context) error {
+	temporalClient, err := client.Dial(client.Options{
+		HostPort:  ctx.TemporalEndpoint,
+		Namespace: ctx.TemporalNamespace,
+	})
+	if err != nil {
+		return fmt.Errorf("connect to Temporal at %s: %w", ctx.TemporalEndpoint, err)
+	}
+	defer temporalClient.Close()
 
-	// TODO: Connect to Temporal and start workflow
-	scanID := "scan-123456"
-	fmt.Printf("\n✓ Workflow started: %s\n", scanID)
+	resourceTypes := make([]types.ResourceType, 0, len(c.ResourceType))
+	for _, rt := range c.ResourceType {
+		resourceTypes = append(resourceTypes, types.ResourceType(rt))
+	}
+
+	trigger := scan.NewTrigger(temporalClient, ctx.TemporalTaskQueue)
+	res, err := trigger.Run(context.Background(), scan.Input{
+		ScanID:        c.ScanID,
+		ResourceTypes: resourceTypes,
+	})
+	if err != nil {
+		return fmt.Errorf("trigger scan: %w", err)
+	}
+
+	scope := "all configured resources"
+	if len(resourceTypes) > 0 {
+		scope = fmt.Sprintf("%v", resourceTypes)
+	}
+	fmt.Printf("✓ Scan started\n")
+	fmt.Printf("  Scope:       %s\n", scope)
+	fmt.Printf("  Scan ID:     %s\n", res.ScanID)
+	fmt.Printf("  Workflow ID: %s\n", res.WorkflowID)
+	fmt.Printf("  Run ID:      %s\n", res.RunID)
 
 	if c.Wait {
-		fmt.Println("Waiting for workflow to complete...")
-		// TODO: Poll workflow status
+		fmt.Println("\nWaiting for workflow to complete...")
+		run := temporalClient.GetWorkflow(context.Background(), res.WorkflowID, res.RunID)
+		if err := run.Get(context.Background(), nil); err != nil {
+			return fmt.Errorf("workflow failed: %w", err)
+		}
 		fmt.Println("✓ Workflow completed successfully")
-		fmt.Println("  Findings: 25")
-		fmt.Println("  Duration: 45s")
 	}
 
 	return nil
