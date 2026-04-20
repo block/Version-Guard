@@ -162,10 +162,53 @@ make dev
 
 ### Trigger a Scan
 
-**Start a detection workflow:**
+Version Guard exposes three ways to start a scan. All three call the same `pkg/scan.Trigger`, so they behave identically: an empty request runs the full fleet; passing one or more resource config IDs runs a targeted scan.
+
+**1. HTTP admin endpoint (`POST /scan`):**
+
+The server listens for admin requests on `HTTP_PORT` (default `8081`).
 
 ```bash
-# Via Temporal CLI (from inside the temporal container if using docker-compose)
+# Full fleet scan
+curl -X POST http://localhost:8081/scan
+
+# Targeted scan with an explicit correlation ID
+curl -X POST http://localhost:8081/scan \
+  -H 'Content-Type: application/json' \
+  -d '{"resource_types":["aurora-mysql","eks"],"scan_id":"my-scan"}'
+```
+
+Response (202 Accepted):
+
+```json
+{
+  "workflow_id": "version-guard-scan-my-scan",
+  "run_id": "019d...",
+  "scan_id": "my-scan"
+}
+```
+
+Error codes: `405` for non-POST, `400` for invalid JSON or unknown fields, `500` if Temporal rejects the workflow start.
+
+**2. CLI (`version-guard-cli scan start`):**
+
+```bash
+# Full fleet scan
+./bin/version-guard-cli scan start
+
+# Targeted scan, waiting for completion
+./bin/version-guard-cli scan start \
+  --resource-type aurora-mysql --resource-type eks \
+  --wait
+```
+
+`--resource-type` is repeatable and also accepts comma-separated values. Use `--scan-id` to set a correlation ID, otherwise one is generated.
+
+**3. Temporal CLI / Web UI:**
+
+Still available for low-level debugging — the Temporal tooling talks directly to the `OrchestratorWorkflow`:
+
+```bash
 docker compose exec temporal temporal workflow start \
   --task-queue version-guard-detection \
   --type OrchestratorWorkflow \
@@ -252,6 +295,7 @@ Version Guard is configured via environment variables or CLI flags:
 | `TEMPORAL_ENDPOINT` | Temporal server address | `localhost:7233` |
 | `TEMPORAL_NAMESPACE` | Temporal namespace | `version-guard-dev` |
 | `GRPC_PORT` | gRPC service port | `8080` |
+| `HTTP_PORT` | HTTP admin port (exposes `POST /scan`) | `8081` |
 | `S3_BUCKET` | S3 bucket for snapshots | `version-guard-snapshots` |
 | `AWS_REGION` | AWS region (for S3 snapshots) | `us-west-2` |
 | `WIZ_CLIENT_ID_SECRET` | Wiz client ID (optional) | - |

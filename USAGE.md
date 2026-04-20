@@ -222,19 +222,29 @@ docker compose logs version-guard
 **5. Trigger a detection workflow:**
 
 ```bash
-# Start workflow via Temporal CLI
+# Preferred: HTTP admin endpoint (runs the full fleet)
+curl -X POST http://localhost:8081/scan
+
+# Or via the CLI (from the host)
+./bin/version-guard-cli scan start
+
+# Output (202 Accepted):
+# {
+#   "workflow_id": "version-guard-scan-<uuid>",
+#   "run_id": "019d...",
+#   "scan_id": "<uuid>"
+# }
+```
+
+Low-level access via the Temporal CLI is still available for debugging:
+
+```bash
 docker compose exec temporal temporal workflow start \
   --task-queue version-guard-detection \
   --type OrchestratorWorkflow \
   --input '{}' \
   --address localhost:7233 \
   --namespace version-guard-dev
-
-# Output:
-# Running execution:
-#   WorkflowId  56c94211-e88d-4b9b-bda9-8acf39b73329
-#   RunId       019d9654-498c-79b8-83c8-ad6ee0de4d7f
-#   Type        OrchestratorWorkflow
 ```
 
 **6. Monitor workflow execution:**
@@ -309,16 +319,41 @@ docker compose logs version-guard | grep -i error
 
 ### Starting the Detector Workflow
 
-The orchestrator workflow automatically triggers detection workflows for all configured resource types in parallel.
+The orchestrator workflow fans out detection workflows for all configured resource types in parallel. Three entry points, all calling the same `pkg/scan.Trigger`:
 
-**Manual Trigger via Temporal UI:**
-1. Navigate to your Temporal UI (e.g., http://localhost:8233)
-2. Start workflow: `OrchestratorWorkflow`
-3. Task Queue: `version-guard-detection`
-4. Input: `{}` (empty for all resources, or specify: `{"ResourceTypes":["aurora","eks"]}`)
-5. Monitor workflow execution
+**1. HTTP admin endpoint (`POST /scan`, default port `8081`):**
 
-**Manual Trigger via Temporal CLI:**
+```bash
+# Full fleet scan
+curl -X POST http://localhost:8081/scan
+
+# Targeted scan
+curl -X POST http://localhost:8081/scan \
+  -H 'Content-Type: application/json' \
+  -d '{"resource_types":["eks","elasticache-redis"],"scan_id":"my-scan"}'
+```
+
+Response on success is `202 Accepted` with `{workflow_id, run_id, scan_id}`. Errors: `405` for non-POST, `400` for invalid JSON or unknown fields, `500` if Temporal rejects the start.
+
+**2. CLI (`version-guard-cli scan start`):**
+
+```bash
+# Full fleet scan
+./bin/version-guard-cli scan start
+
+# Targeted scan, waiting for completion
+./bin/version-guard-cli scan start \
+  --resource-type eks --resource-type elasticache-redis \
+  --wait
+
+# Comma-separated values also work
+./bin/version-guard-cli scan start --resource-type eks,elasticache-redis
+```
+
+Resource type values are the config IDs from `config/resources.yaml` (e.g. `aurora-mysql`, `eks`, `elasticache-redis`, `opensearch`).
+
+**3. Temporal UI / CLI (low-level debugging):**
+
 ```bash
 # Scan all configured resources
 temporal workflow start \
@@ -331,9 +366,11 @@ temporal workflow start \
 temporal workflow start \
   --task-queue version-guard-detection \
   --type OrchestratorWorkflow \
-  --input '{"ResourceTypes":["eks","elasticache"]}' \
+  --input '{"ResourceTypes":["eks","elasticache-redis"]}' \
   --namespace version-guard-dev
 ```
+
+Or start the workflow from the Temporal UI at http://localhost:8233 with task queue `version-guard-detection`, type `OrchestratorWorkflow`, input `{}`.
 
 **Monitor Progress:**
 ```bash
@@ -868,6 +905,28 @@ Summary:
   [--status=red|yellow|green]
 ```
 
+#### Scan Commands
+
+```bash
+# Trigger a full fleet scan (background)
+./bin/version-guard-cli scan start
+
+# Targeted scan, waiting for completion
+./bin/version-guard-cli scan start \
+  [--resource-type=STRING]... \
+  [--scan-id=STRING] \
+  [--wait]
+
+# --resource-type is repeatable and also accepts comma-separated values,
+# e.g. --resource-type aurora-mysql,eks. Values are resource config IDs
+# from config/resources.yaml.
+#
+# Temporal connection flags (apply to all scan/workflow subcommands):
+#   --temporal-endpoint=STRING    (default localhost:7233)
+#   --temporal-namespace=STRING   (default version-guard-dev)
+#   --temporal-task-queue=STRING  (default version-guard-detection)
+```
+
 ---
 
 ## FAQ
@@ -876,7 +935,7 @@ Summary:
 A: Depends on how you configure the orchestrator workflow schedule in Temporal.
 
 **Q: Can I force a scan immediately?**
-A: Yes, manually trigger the orchestrator workflow via Temporal UI or CLI.
+A: Yes — `curl -X POST http://localhost:8081/scan` or `version-guard-cli scan start`. Both accept an optional `resource_types` / `--resource-type` filter for targeted scans.
 
 **Q: What happens if I upgrade a resource?**
 A: Next scan will detect the new version and auto-resolve the finding.
