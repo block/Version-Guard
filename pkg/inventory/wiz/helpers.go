@@ -267,4 +267,3 @@ func isCommonSuffix(s string) bool {
 	}
 	return false
 }
-
