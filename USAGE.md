@@ -135,8 +135,6 @@ make build
 export TEMPORAL_ENDPOINT=localhost:7233
 export TEMPORAL_NAMESPACE=version-guard-dev
 export AWS_REGION=us-west-2
-export GRPC_PORT=8080
-
 # Optional: Configure Wiz (otherwise uses mock data)
 export WIZ_CLIENT_ID_SECRET=your-client-id
 export WIZ_CLIENT_SECRET_SECRET=your-client-secret
@@ -382,123 +380,6 @@ Configure the orchestrator workflow schedule via Temporal schedules or cron trig
 
 ---
 
-## API Reference
-
-### gRPC Service
-
-**Default Endpoint**: `localhost:8080`
-
-#### GetServiceScore
-
-Get compliance score for a specific service.
-
-**Request**:
-```protobuf
-message GetServiceScoreRequest {
-  string service = 1;           // Required: service name
-  ResourceType resource_type = 2; // Optional: filter by resource type
-  CloudProvider cloud_provider = 3; // Optional: filter by cloud
-}
-```
-
-**Response**:
-```protobuf
-message GetServiceScoreResponse {
-  string service = 1;
-  ComplianceGrade grade = 2;     // BRONZE/SILVER/GOLD
-  int32 total_resources = 3;
-  int32 red_count = 4;
-  int32 yellow_count = 5;
-  int32 green_count = 6;
-  float compliance_percentage = 7;
-}
-```
-
-**Example (grpcurl)**:
-```bash
-grpcurl \
-  -plaintext \
-  -d '{"service": "payments"}' \
-  localhost:8080 \
-  block.versionguard.service.VersionGuard/GetServiceScore
-```
-
-#### ListFindings
-
-List all findings with filters.
-
-**Request**:
-```protobuf
-message ListFindingsRequest {
-  CloudProvider cloud_provider = 1; // Optional: filter by cloud (AWS/GCP/AZURE)
-  ResourceType resource_type = 2;   // Optional: filter by type (AURORA/ELASTICACHE/etc)
-  string service = 3;               // Optional: filter by service name
-  Status status = 4;                // Optional: filter by status (RED/YELLOW/GREEN)
-  string brand = 5;                 // Optional: filter by brand
-  string cloud_account_id = 6;      // Optional: filter by AWS account/GCP project
-  string cloud_region = 7;          // Optional: filter by region (us-east-1/us-west-2)
-  int32 limit = 8;                  // Optional: max results to return
-}
-```
-
-**Response**:
-```protobuf
-message ListFindingsResponse {
-  repeated Finding findings = 1;
-  int32 total_count = 2;
-}
-```
-
-**Example**:
-```bash
-# Get all RED findings for payments service
-grpcurl \
-  -plaintext \
-  -d '{"service": "payments", "status": "RED"}' \
-  localhost:8080 \
-  block.versionguard.service.VersionGuard/ListFindings
-```
-
-#### GetFleetSummary
-
-Get aggregate statistics across the fleet.
-
-**Request**:
-```protobuf
-message GetFleetSummaryRequest {
-  CloudProvider cloud_provider = 1; // Optional
-  ResourceType resource_type = 2;   // Optional
-}
-```
-
-**Response**:
-```protobuf
-message GetFleetSummaryResponse {
-  int32 total_resources = 1;
-  int32 red_count = 2;
-  int32 yellow_count = 3;
-  int32 green_count = 4;
-  int32 unknown_count = 5;
-  float compliance_percentage = 6;
-  google.protobuf.Timestamp last_scan = 7;
-  map<string, int32> by_service = 8;       // Resources grouped by service
-  map<string, int32> by_brand = 9;         // Resources grouped by brand
-  map<string, int32> by_cloud_provider = 10; // Resources by cloud (aws/gcp/azure)
-}
-```
-
-**Example**:
-```bash
-# Get AWS Aurora fleet summary
-grpcurl \
-  -plaintext \
-  -d '{"cloud_provider": "AWS", "resource_type": "AURORA"}' \
-  localhost:8080 \
-  block.versionguard.service.VersionGuard/GetFleetSummary
-```
-
----
-
 ## Service Attribution
 
 Version Guard attributes infrastructure resources to services using a **3-tier fallback approach** to ensure accurate ownership mapping even when resources are poorly tagged.
@@ -637,8 +518,8 @@ AWS_REGION=us-west-2
 S3_BUCKET=version-guard-snapshots
 S3_PREFIX=snapshots/
 
-# gRPC Service
-GRPC_PORT=8080
+# HTTP Admin Service
+HTTP_PORT=8081
 
 # Tag Configuration (customize AWS resource tag keys)
 TAG_APP_KEYS=app,application,service
@@ -830,7 +711,7 @@ Summary:
 
 **Global Flags:**
 ```bash
---endpoint=STRING    # gRPC endpoint (env: VERSION_GUARD_ENDPOINT)
+--endpoint=STRING    # HTTP endpoint (env: VERSION_GUARD_ENDPOINT)
 -v, --verbose        # Enable verbose logging
 -h, --help          # Show help
 ```

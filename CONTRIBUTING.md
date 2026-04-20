@@ -180,9 +180,8 @@ Version-Guard/
 │   ├── store/           # Finding storage
 │   ├── snapshot/        # S3 snapshot management
 │   ├── workflow/        # Temporal workflows
-│   ├── service/         # gRPC service
+│   ├── scan/            # Scan trigger (HTTP + CLI)
 │   └── emitters/        # Emitter interfaces + examples
-├── protos/              # Protocol Buffers
 ├── docs/                # Documentation
 └── .github/             # GitHub workflows
 ```

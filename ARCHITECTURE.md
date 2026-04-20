@@ -26,7 +26,7 @@
 - **Single responsibility principle**: Each component has one clear purpose
 - **Interface-based design**: Easy to test, extend, and customize
 - **Extensible storage**: In-memory (included) → SQL database (your implementation)
-- **gRPC API**: Query interface for dashboards and integrations
+- **HTTP Admin API**: Trigger scans via `POST /scan`
 
 ---
 
@@ -44,7 +44,7 @@
 - Inventory sources are cloud-specific but share a common interface
 - EOL providers are cloud-specific but share a common interface
 - Detectors are resource-specific, cloud-aware
-- gRPC API is cloud-agnostic (filters by cloud provider)
+- HTTP Admin API is cloud-agnostic (triggers scans across all providers)
 
 ---
 
@@ -101,7 +101,7 @@ export WIZ_REPORT_IDS='{
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │                 Version Guard Detector Service              │
-│            (Temporal Workflow + gRPC Service)               │
+│            (Temporal Workflow + HTTP Admin)                 │
 └─────────────────────────────────────────────────────────────┘
 
                     ┌────────────────────┐
@@ -132,8 +132,8 @@ export WIZ_REPORT_IDS='{
                     └──────┬───────┘
                            │
                     ┌──────▼───────┐
-                    │ gRPC Service │
-                    │   (Query API)│
+                    │  HTTP Admin  │
+                    │ (POST /scan) │
                     └──────────────┘
 ```
 
@@ -144,7 +144,7 @@ export WIZ_REPORT_IDS='{
 4. **DetectDrift**: Apply policy → classify Red/Yellow/Green
 5. **Store**: Save findings to storage backend
 6. **S3 Snapshot**: Create versioned JSON snapshot (optional)
-7. **gRPC**: Clients query for compliance data
+7. **HTTP Admin**: Trigger scans via `POST /scan`
 
 ---
 
@@ -153,7 +153,7 @@ export WIZ_REPORT_IDS='{
 ```
 Version-Guard/
 ├── cmd/
-│   ├── server/main.go                    # Server with Temporal worker + gRPC
+│   ├── server/main.go                    # Server with Temporal worker + HTTP admin
 │   └── cli/main.go                       # CLI tool for operators
 │
 ├── config/
@@ -214,10 +214,9 @@ Version-Guard/
 │   │       ├── workflow.go               # Main orchestrator (fan-out)
 │   │       └── activities.go             # Snapshot storage activity
 │   │
-│   ├── service/
-│   │   └── grpc/
-│   │       ├── service.go                # gRPC service implementation
-│   │       └── types.go                  # Type converters
+│   ├── scan/
+│   │   ├── scan.go                       # Scan trigger (HTTP + CLI)
+│   │   └── handler.go                    # HTTP handler for POST /scan
 │   │
 │   ├── emitters/
 │   │   ├── emitters.go                   # Emitter interfaces (for custom implementations)
@@ -226,10 +225,6 @@ Version-Guard/
 │   │
 │   └── registry/
 │       └── client.go                     # Service attribution interface
-│
-├── protos/
-│   └── block/versionguard/
-│       └── service.proto                 # gRPC service definition
 │
 └── docs/
     └── examples/                         # Usage examples
@@ -435,41 +430,6 @@ func OrchestratorWorkflow(ctx workflow.Context, input WorkflowInput) (*WorkflowO
 
 ---
 
-## gRPC Service
-
-Version Guard exposes a gRPC API for querying compliance data.
-
-### Endpoints
-
-1. **GetServiceScore** - Get compliance grade for a specific service
-   ```protobuf
-   rpc GetServiceScore(GetServiceScoreRequest) returns (ServiceScore)
-   ```
-   - Input: Service name, optional filters
-   - Output: Bronze/Silver/Gold grade, resource counts
-
-2. **ListFindings** - Query findings with filters
-   ```protobuf
-   rpc ListFindings(ListFindingsRequest) returns (ListFindingsResponse)
-   ```
-   - Input: Filters (status, service, cloud provider, etc.)
-   - Output: List of findings
-
-3. **GetFleetSummary** - Fleet-wide statistics
-   ```protobuf
-   rpc GetFleetSummary(GetFleetSummaryRequest) returns (FleetSummary)
-   ```
-   - Input: Optional filters
-   - Output: Total counts, compliance %, breakdowns
-
-### Compliance Grades
-
-- 🥉 **Bronze**: Service tracked, versions known (has data)
-- 🥈 **Silver**: No RED issues (no EOL/deprecated resources)
-- 🥇 **Gold**: No YELLOW issues (fully compliant)
-
----
-
 ## S3 Snapshots
 
 Version Guard creates versioned JSON snapshots in S3 for audit trail and downstream consumption.
@@ -604,7 +564,7 @@ func (e *JiraEmitter) Emit(ctx context.Context, snapshotID string, findings []*t
 
 1. **In workflows** - Call emitters from activities
 2. **From snapshots** - Read S3, emit independently
-3. **From gRPC** - Query findings, emit on-demand
+3. **From HTTP admin** - Trigger scans on-demand via `POST /scan`
 
 ---
 
@@ -685,7 +645,7 @@ make run-locally  # One-shot
 
 ### Monitoring
 
-- **Metrics**: Expose Prometheus metrics from gRPC service
+- **Metrics**: Expose Prometheus metrics from HTTP admin service
 - **Logs**: Structured JSON logging via `log/slog`
   - Machine-readable JSON format for log aggregation tools (Datadog, Splunk, CloudWatch Insights)
   - Context-aware logging with typed fields for queryable log data
@@ -702,7 +662,7 @@ make run-locally  # One-shot
     }
     ```
 - **Alerts**: Based on RED/YELLOW finding counts
-- **Dashboards**: Query gRPC API for real-time data
+- **Dashboards**: Consume S3 snapshots for real-time data
 
 ---
 
@@ -854,7 +814,7 @@ invSources["my-resource"] = custom.NewMyInventorySource(...)
 
 - Wiz: Read-only saved report access
 - AWS: `rds:DescribeDBEngineVersions`, `eks:DescribeAddonVersions`, `s3:PutObject`
-- gRPC: Implement authentication (TLS, JWT, mTLS)
+- HTTP Admin: Consider authentication for scan trigger endpoint
 
 ### Data Privacy
 

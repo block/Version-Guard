@@ -32,7 +32,7 @@ setup: ## Initial setup (install tools, setup hooks)
 	@command -v golangci-lint > /dev/null || (echo "Installing golangci-lint..." && curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $$(go env GOPATH)/bin)
 	@command -v goimports > /dev/null || (echo "Installing goimports..." && go install golang.org/x/tools/cmd/goimports@latest)
 	@command -v temporal > /dev/null || echo "⚠️  Temporal CLI not found. Install with: brew install temporal"
-	@command -v grpcurl > /dev/null || echo "⚠️  grpcurl not found. Install with: brew install grpcurl"
+
 	@echo "✅ Setup complete!"
 
 # ── Build ─────────────────────────────────────────────────────────────────────
@@ -53,16 +53,6 @@ build-cli: ## Build CLI tool
 
 .PHONY: build-all
 build-all: build build-cli ## Build both server and CLI binaries
-
-.PHONY: build-with-protos
-build-with-protos: build build-cli protos ## Build everything (binaries + protos)
-
-# ── Protocol Buffers ──────────────────────────────────────────────────────────
-
-.PHONY: protos
-protos: ## Generate Go code from .proto files
-	@echo "🔧 Generating protobuf code..."
-	@if [ -d "protos" ]; then $(MAKE) -C protos; else echo "⚠️  protos/ directory not found, skipping"; fi
 
 # ── Tests ─────────────────────────────────────────────────────────────────────
 
@@ -173,8 +163,8 @@ run-worker: build ## Run Temporal worker locally
 	@CONFIG_ENV=development bin/$(BINARY_NAME) --mode=worker
 
 .PHONY: run-server
-run-server: build ## Run gRPC server locally
-	@echo "🚀 Starting gRPC server locally..."
+run-server: build ## Run server locally
+	@echo "🚀 Starting server locally..."
 	@CONFIG_ENV=development bin/$(BINARY_NAME) --mode=server
 
 # ── Docker ────────────────────────────────────────────────────────────────────

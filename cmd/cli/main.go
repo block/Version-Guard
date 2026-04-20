@@ -25,7 +25,7 @@ type CLI struct {
 	Debug    DebugCmd    `cmd:"" help:"Debug commands for troubleshooting"`
 
 	// Global flags
-	Endpoint string `help:"Version Guard gRPC endpoint" default:"localhost:8080" env:"VERSION_GUARD_ENDPOINT"`
+	Endpoint string `help:"Version Guard HTTP endpoint" default:"localhost:8081" env:"VERSION_GUARD_ENDPOINT"`
 	Verbose  bool   `short:"v" help:"Enable verbose logging"`
 
 	// Temporal connection flags (used by workflow commands)
@@ -70,7 +70,7 @@ func (c *ServiceCheckCmd) Run(ctx *Context) error {
 		}
 	}
 
-	// TODO: Connect to gRPC service and fetch compliance score
+	// TODO: Connect to HTTP admin API and fetch compliance score
 	fmt.Println("\nCompliance Score: BRONZE")
 	fmt.Println("Total Resources: 25")
 	fmt.Println("RED: 5")
@@ -90,7 +90,7 @@ type ServiceListCmd struct {
 func (c *ServiceListCmd) Run(ctx *Context) error {
 	fmt.Println("Listing all services...")
 
-	// TODO: Connect to gRPC service and list services
+	// TODO: Connect to HTTP admin API and list services
 	fmt.Println("\nService Name    | Grade  | Resources | RED | YELLOW | GREEN")
 	fmt.Println("----------------|--------|-----------|-----|--------|------")
 	fmt.Println("payments        | BRONZE |        25 |   5 |     10 |    10")
@@ -129,7 +129,7 @@ func (c *FindingListCmd) Run(_ *Context) error {
 		fmt.Printf("  Status: %s\n", c.Status)
 	}
 
-	// TODO: Connect to gRPC service and list findings
+	// TODO: Connect to HTTP admin API and list findings
 	fmt.Println("\nResource ID                                    | Status | Current Version | EOL Date")
 	fmt.Println("-----------------------------------------------|--------|-----------------|----------")
 	fmt.Println("arn:aws:rds:us-east-1:123:cluster:legacy-db   | RED    | aurora-mysql-5.6| 2024-11-01")
@@ -148,7 +148,7 @@ type FindingShowCmd struct {
 func (c *FindingShowCmd) Run(_ *Context) error {
 	fmt.Printf("Finding Details for: %s\n\n", c.ResourceID)
 
-	// TODO: Connect to gRPC service and fetch finding details
+	// TODO: Connect to HTTP admin API and fetch finding details
 	fmt.Println("Resource ID:      arn:aws:rds:us-east-1:123:cluster:legacy-db")
 	fmt.Println("Resource Name:    legacy-db")
 	fmt.Println("Resource Type:    AURORA")
@@ -174,7 +174,7 @@ type FindingExportCmd struct {
 func (c *FindingExportCmd) Run(_ *Context) error {
 	fmt.Printf("Exporting findings to: %s\n", c.Output)
 
-	// TODO: Connect to gRPC service and export findings
+	// TODO: Connect to HTTP admin API and export findings
 	fmt.Println("✓ Exported 25 findings")
 
 	return nil
