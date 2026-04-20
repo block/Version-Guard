@@ -20,7 +20,8 @@ type CLI struct {
 	Version  VersionCmd  `cmd:"" help:"Show version information"`
 	Service  ServiceCmd  `cmd:"" help:"Check service compliance"`
 	Finding  FindingCmd  `cmd:"" help:"Manage findings"`
-	Workflow WorkflowCmd `cmd:"" help:"Manage Temporal workflows"`
+	Scan     ScanCmd     `cmd:"" help:"Trigger and manage scans"`
+	Workflow WorkflowCmd `cmd:"" help:"Inspect Temporal workflow runs"`
 	Debug    DebugCmd    `cmd:"" help:"Debug commands for troubleshooting"`
 
 	// Global flags
@@ -179,25 +180,21 @@ func (c *FindingExportCmd) Run(_ *Context) error {
 	return nil
 }
 
-// WorkflowCmd manages Temporal workflows
-//
-//nolint:govet // field alignment sacrificed for logical grouping
-type WorkflowCmd struct {
-	Start  WorkflowStartCmd  `cmd:"" help:"Start a detection workflow"`
-	Status WorkflowStatusCmd `cmd:"" help:"Check workflow status"`
-	List   WorkflowListCmd   `cmd:"" help:"List recent workflow runs"`
+// ScanCmd triggers scans and manages scan execution.
+type ScanCmd struct {
+	Start ScanStartCmd `cmd:"" help:"Trigger a scan (full fleet or targeted)"`
 }
 
-// WorkflowStartCmd triggers an OrchestratorWorkflow run.
+// ScanStartCmd triggers an OrchestratorWorkflow run.
 // Omit --resource-type to scan every configured resource; pass it one or
 // more times (or comma-separate) to run a targeted scan.
-type WorkflowStartCmd struct {
+type ScanStartCmd struct {
 	ScanID       string   `help:"Correlation ID for this scan (auto-generated if empty)"`
 	ResourceType []string `help:"Resource config ID to scan (repeatable, e.g. aurora-mysql,eks). Empty = full scan."`
 	Wait         bool     `help:"Wait for workflow to complete"`
 }
 
-func (c *WorkflowStartCmd) Run(ctx *Context) error {
+func (c *ScanStartCmd) Run(ctx *Context) error {
 	temporalClient, err := client.Dial(client.Options{
 		HostPort:  ctx.TemporalEndpoint,
 		Namespace: ctx.TemporalNamespace,
@@ -241,6 +238,12 @@ func (c *WorkflowStartCmd) Run(ctx *Context) error {
 	}
 
 	return nil
+}
+
+// WorkflowCmd inspects Temporal workflow runs.
+type WorkflowCmd struct {
+	Status WorkflowStatusCmd `cmd:"" help:"Check workflow status"`
+	List   WorkflowListCmd   `cmd:"" help:"List recent workflow runs"`
 }
 
 // WorkflowStatusCmd checks workflow status
