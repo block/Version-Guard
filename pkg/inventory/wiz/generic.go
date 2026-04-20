@@ -18,6 +18,7 @@ import (
 const (
 	resourceTypeEKS        = "eks"
 	resourceTypeOpenSearch = "opensearch"
+	resourceTypeLambda     = "lambda"
 )
 
 // contextKey is a custom type for context keys to avoid collisions
@@ -147,6 +148,11 @@ func (s *GenericInventorySource) getRequiredColumns() []string {
 		columns = append(columns, engineField)
 	}
 
+	// Lambda needs graphEntity.properties for runtime extraction
+	if s.config.Type == resourceTypeLambda {
+		columns = append(columns, colHeaderGraphProperties)
+	}
+
 	return columns
 }
 
@@ -232,6 +238,18 @@ func (s *GenericInventorySource) parseResourceRow(
 	if s.config.Type == resourceTypeOpenSearch {
 		version = normalizeOpenSearchVersion(version)
 		engine = detectOpenSearchEngine(version)
+	}
+
+	// Lambda-specific: extract runtime from graphEntity.properties JSON.
+	// The runtime string (e.g., "python3.12", "nodejs20.x") is the cycle
+	// identifier on endoflife.date's aws-lambda product, so it becomes the
+	// version. The engine is always "aws-lambda".
+	if s.config.Type == resourceTypeLambda {
+		propsJSON := cols.col(row, colHeaderGraphProperties)
+		if runtime := extractLambdaRuntime(propsJSON); runtime != "" {
+			version = runtime
+			engine = "aws-lambda"
+		}
 	}
 
 	// Parse tags to extract service, brand
@@ -323,6 +341,30 @@ func detectOpenSearchEngine(version string) string {
 	default:
 		return resourceTypeOpenSearch
 	}
+}
+
+// extractLambdaRuntime extracts the runtime identifier from the
+// graphEntity.properties JSON column of a Wiz Lambda report row.
+// The JSON contains a "runtime" field with values like "python3.12",
+// "nodejs20.x", "java21", "provided.al2023", etc.
+// Returns "" if the JSON is empty, unparseable, or has no runtime field.
+func extractLambdaRuntime(propsJSON string) string {
+	propsJSON = strings.TrimSpace(propsJSON)
+	if propsJSON == "" {
+		return ""
+	}
+
+	var props map[string]interface{}
+	if err := json.Unmarshal([]byte(propsJSON), &props); err != nil {
+		return ""
+	}
+
+	runtime, ok := props["runtime"].(string)
+	if !ok {
+		return ""
+	}
+
+	return strings.TrimSpace(runtime)
 }
 
 // normalizeEngine normalizes engine names based on resource type

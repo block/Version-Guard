@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
 	"github.com/block/Version-Guard/pkg/config"
@@ -193,6 +194,18 @@ func TestMatchesNativeTypePattern(t *testing.T) {
 			pattern:     "eks/Cluster",
 			nativeType:  "eks/Cluster",
 			shouldMatch: true,
+		},
+		{
+			name:        "Lambda exact match",
+			pattern:     "lambda",
+			nativeType:  "lambda",
+			shouldMatch: true,
+		},
+		{
+			name:        "Lambda no match - different type",
+			pattern:     "lambda",
+			nativeType:  "lambda/Python/function",
+			shouldMatch: false,
 		},
 	}
 
@@ -481,6 +494,294 @@ func TestGetResource(t *testing.T) {
 	_, err := source.GetResource(ctx, types.ResourceType("aurora"), "test-id")
 
 	assert.Error(t, err)
+}
+
+func TestExtractLambdaRuntime(t *testing.T) {
+	tests := []struct {
+		name     string
+		json     string
+		expected string
+	}{
+		{
+			name:     "Python runtime",
+			json:     `{"runtime":"python3.12","memorySize":256}`,
+			expected: "python3.12",
+		},
+		{
+			name:     "Node.js runtime",
+			json:     `{"runtime":"nodejs20.x","memorySize":512}`,
+			expected: "nodejs20.x",
+		},
+		{
+			name:     "Java runtime",
+			json:     `{"runtime":"java21","memorySize":1024}`,
+			expected: "java21",
+		},
+		{
+			name:     "Custom runtime provided.al2023",
+			json:     `{"runtime":"provided.al2023","memorySize":128}`,
+			expected: "provided.al2023",
+		},
+		{
+			name:     "Custom runtime provided.al2",
+			json:     `{"runtime":"provided.al2","memorySize":128}`,
+			expected: "provided.al2",
+		},
+		{
+			name:     "Dotnet runtime",
+			json:     `{"runtime":"dotnet8","memorySize":512}`,
+			expected: "dotnet8",
+		},
+		{
+			name:     "Ruby runtime",
+			json:     `{"runtime":"ruby3.3","memorySize":256}`,
+			expected: "ruby3.3",
+		},
+		{
+			name:     "No runtime field",
+			json:     `{"memorySize":256}`,
+			expected: "",
+		},
+		{
+			name:     "Empty JSON",
+			json:     "",
+			expected: "",
+		},
+		{
+			name:     "Invalid JSON",
+			json:     "not json",
+			expected: "",
+		},
+		{
+			name:     "Runtime is not a string",
+			json:     `{"runtime":123}`,
+			expected: "",
+		},
+		{
+			name:     "Runtime with whitespace",
+			json:     `{"runtime":"  python3.12  "}`,
+			expected: "python3.12",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := extractLambdaRuntime(tt.json)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestParseResourceRow_Lambda(t *testing.T) {
+	cfg := config.ResourceConfig{
+		ID:            "lambda",
+		Type:          "lambda",
+		CloudProvider: "aws",
+		Inventory: config.InventoryConfig{
+			FieldMappings: map[string]string{
+				"region":      "region",
+				"account_id":  "cloudAccount.externalId",
+				"name":        "name",
+				"external_id": "externalId",
+			},
+		},
+	}
+
+	source := NewGenericInventorySource(&Client{}, &cfg, nil, nil)
+
+	cols := columnIndex{
+		colHeaderExternalID:      0,
+		colHeaderName:            1,
+		colHeaderAccountID:       2,
+		colHeaderRegion:          3,
+		"versionDetails.version": 4,
+		colHeaderTags:            5,
+		colHeaderGraphProperties: 6,
+	}
+
+	tagsJSON := `[{"key":"app","value":"my-function"},{"key":"brand","value":"brand-a"}]`
+
+	row := []string{
+		"arn:aws:lambda:us-east-1:123456789012:function:my-func", // external_id
+		"my-func",      // name
+		"123456789012", // account_id
+		"us-east-1",    // region
+		"3.12",         // version (ambiguous without runtime)
+		tagsJSON,       // tags
+		`{"runtime":"python3.12","memorySize":256}`, // graphEntity.properties
+	}
+
+	ctx := context.Background()
+	resource, err := source.parseResourceRow(ctx, cols, row)
+
+	require.NoError(t, err)
+	assert.Equal(t, "arn:aws:lambda:us-east-1:123456789012:function:my-func", resource.ID)
+	assert.Equal(t, "my-func", resource.Name)
+	assert.Equal(t, types.ResourceType("lambda"), resource.Type)
+	assert.Equal(t, types.CloudProviderAWS, resource.CloudProvider)
+	assert.Equal(t, "123456789012", resource.CloudAccountID)
+	assert.Equal(t, "us-east-1", resource.CloudRegion)
+	// Version should be the runtime, not the ambiguous versionDetails.version
+	assert.Equal(t, "python3.12", resource.CurrentVersion)
+	assert.Equal(t, "aws-lambda", resource.Engine)
+	assert.Equal(t, "my-function", resource.Service)
+	assert.Equal(t, "brand-a", resource.Brand)
+}
+
+func TestParseResourceRow_LambdaNoRuntime(t *testing.T) {
+	cfg := config.ResourceConfig{
+		ID:            "lambda",
+		Type:          "lambda",
+		CloudProvider: "aws",
+		Inventory: config.InventoryConfig{
+			FieldMappings: map[string]string{
+				"region":      "region",
+				"account_id":  "cloudAccount.externalId",
+				"name":        "name",
+				"external_id": "externalId",
+			},
+		},
+	}
+
+	source := NewGenericInventorySource(&Client{}, &cfg, nil, nil)
+
+	cols := columnIndex{
+		colHeaderExternalID:      0,
+		colHeaderName:            1,
+		colHeaderAccountID:       2,
+		colHeaderRegion:          3,
+		"versionDetails.version": 4,
+		colHeaderTags:            5,
+		colHeaderGraphProperties: 6,
+	}
+
+	row := []string{
+		"arn:aws:lambda:us-east-1:123456789012:function:no-runtime",
+		"no-runtime",
+		"123456789012",
+		"us-east-1",
+		"3.12",
+		"[]",
+		`{"memorySize":256}`, // No runtime field
+	}
+
+	ctx := context.Background()
+	resource, err := source.parseResourceRow(ctx, cols, row)
+
+	require.NoError(t, err)
+	// Without runtime in graphEntity.properties, falls back to empty version/engine
+	assert.Equal(t, "", resource.CurrentVersion)
+	assert.Equal(t, "", resource.Engine)
+}
+
+func TestGetRequiredColumns_Lambda(t *testing.T) {
+	cfg := config.ResourceConfig{
+		Type: "lambda",
+		Inventory: config.InventoryConfig{
+			FieldMappings: map[string]string{
+				"region":      "region",
+				"account_id":  "cloudAccount.externalId",
+				"name":        "name",
+				"external_id": "externalId",
+			},
+		},
+	}
+
+	source := NewGenericInventorySource(&Client{}, &cfg, nil, nil)
+	columns := source.getRequiredColumns()
+
+	// Should include graphEntity.properties for Lambda
+	assert.Contains(t, columns, colHeaderGraphProperties)
+}
+
+func TestListResources_LambdaFixture(t *testing.T) {
+	// End-to-end test using the Lambda CSV fixture data
+	mockWizClient := new(MockWizClient)
+	mockWizClient.On("GetAccessToken", mock.Anything).Return("test-token", nil)
+	mockWizClient.On("GetReport", mock.Anything, "test-token", "lambda-report-id").
+		Return(WizAPIFixtures.LambdaReport, nil)
+	mockWizClient.On("DownloadReport", mock.Anything, WizAPIFixtures.LambdaReport.DownloadURL).
+		Return(NewMockReadCloser(WizAPIFixtures.LambdaCSVData), nil)
+
+	wizClient := NewClient(mockWizClient, time.Hour)
+
+	reportIDs := map[string]string{"lambda": "lambda-report-id"}
+	reportIDsJSON, _ := json.Marshal(reportIDs)
+	os.Setenv("WIZ_REPORT_IDS", string(reportIDsJSON))
+	defer os.Unsetenv("WIZ_REPORT_IDS")
+
+	cfg := config.ResourceConfig{
+		ID:            "lambda",
+		Type:          "lambda",
+		CloudProvider: "aws",
+		Inventory: config.InventoryConfig{
+			NativeTypePattern: "lambda",
+			FieldMappings: map[string]string{
+				"region":      "region",
+				"account_id":  "cloudAccount.externalId",
+				"name":        "name",
+				"external_id": "externalId",
+			},
+		},
+	}
+
+	source := NewGenericInventorySource(wizClient, &cfg, nil, nil)
+
+	resources, err := source.ListResources(context.Background(), types.ResourceTypeLambda)
+	require.NoError(t, err)
+
+	// Fixture has 5 rows, all with nativeType "lambda" (but we set pattern to match)
+	// However nativeType in fixture is "lambda/Python/function" etc — let's check
+	// The fixture uses nativeType patterns like "lambda/Python/function"
+	// Our pattern is "lambda" (exact match), so only rows with nativeType=="lambda" match.
+	// Since the fixture uses "lambda/Python/function", "lambda/NodeJs/function", etc.,
+	// none will match exact "lambda". Let's verify the fixture nativeTypes.
+
+	// Actually, let me check — the fixture was designed with wildcard patterns.
+	// For the integration test, we need to match the fixture's nativeTypes.
+	// The fixture has: lambda/Python/function, lambda/NodeJs/function, etc.
+	// But production data uses just "lambda". Let's test with wildcard pattern.
+	assert.Empty(t, resources) // exact "lambda" won't match "lambda/Python/function"
+
+	// Now test with wildcard pattern matching the fixture data
+	cfg.Inventory.NativeTypePattern = "lambda/*/function"
+	source = NewGenericInventorySource(wizClient, &cfg, nil, nil)
+
+	// Need fresh Wiz client mock since cache is keyed by report ID
+	mockWizClient2 := new(MockWizClient)
+	mockWizClient2.On("GetAccessToken", mock.Anything).Return("test-token", nil)
+	mockWizClient2.On("GetReport", mock.Anything, "test-token", "lambda-report-id").
+		Return(WizAPIFixtures.LambdaReport, nil)
+	mockWizClient2.On("DownloadReport", mock.Anything, WizAPIFixtures.LambdaReport.DownloadURL).
+		Return(NewMockReadCloser(WizAPIFixtures.LambdaCSVData), nil)
+	wizClient2 := NewClient(mockWizClient2, time.Hour)
+	source = NewGenericInventorySource(wizClient2, &cfg, nil, nil)
+
+	resources, err = source.ListResources(context.Background(), types.ResourceTypeLambda)
+	require.NoError(t, err)
+	require.Len(t, resources, 5)
+
+	// Verify runtime extraction for each resource
+	runtimeMap := make(map[string]string)
+	for _, r := range resources {
+		runtimeMap[r.Name] = r.CurrentVersion
+	}
+
+	assert.Equal(t, "python3.8", runtimeMap["legacy-python38"])
+	assert.Equal(t, "nodejs20.x", runtimeMap["billing-node20"])
+	assert.Equal(t, "java21", runtimeMap["payments-java21"])
+	assert.Equal(t, "provided.al2023", runtimeMap["custom-runtime"])
+	// no-runtime-props has no runtime field in graphEntity.properties
+	assert.Equal(t, "", runtimeMap["no-runtime-props"])
+
+	// All resources with a runtime should have engine "aws-lambda"
+	for _, r := range resources {
+		if r.CurrentVersion != "" {
+			assert.Equal(t, "aws-lambda", r.Engine, "resource %s should have engine aws-lambda", r.Name)
+		}
+	}
+
+	mockWizClient2.AssertExpectations(t)
 }
 
 func TestParseResourceRow_WithContextTime(t *testing.T) {

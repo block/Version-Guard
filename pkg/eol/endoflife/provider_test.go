@@ -8,6 +8,16 @@ import (
 	"github.com/block/Version-Guard/pkg/types"
 )
 
+func TestProductMapping_AWSLambda(t *testing.T) {
+	product, ok := ProductMapping["aws-lambda"]
+	if !ok {
+		t.Fatal("aws-lambda not found in ProductMapping")
+	}
+	if product != "aws-lambda" {
+		t.Errorf("expected product aws-lambda, got %s", product)
+	}
+}
+
 func TestProvider_GetVersionLifecycle_PostgreSQL(t *testing.T) {
 	// Mock client with test data (using dates relative to 2026-04-08)
 	// Testing with PostgreSQL which uses STANDARD endoflife.date schema

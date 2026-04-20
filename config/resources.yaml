@@ -88,6 +88,22 @@ resources:
       product: amazon-opensearch
       schema: standard
 
+  - id: lambda
+    type: lambda
+    cloud_provider: aws
+    inventory:
+      source: wiz
+      native_type_pattern: "lambda"
+      field_mappings:
+        region: "region"
+        account_id: "cloudAccount.externalId"
+        name: "name"
+        external_id: "externalId"
+    eol:
+      provider: endoflife-date
+      product: aws-lambda
+      schema: standard
+
   # Add more resources using the add-version-guard-resource skill
   #
   # Configuration:

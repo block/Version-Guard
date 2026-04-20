@@ -35,6 +35,8 @@ var ProductMapping = map[string]string{
 
 	"opensearch":    "amazon-opensearch",
 	"elasticsearch": "elasticsearch",
+
+	"aws-lambda": "aws-lambda",
 }
 
 const (
