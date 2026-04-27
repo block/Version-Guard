@@ -127,42 +127,40 @@ func (s *GenericInventorySource) GetResource(ctx context.Context, resourceType t
 	return nil, errors.Errorf("resource not found: %s", id)
 }
 
-// column returns the CSV column to use for the given field-mapping key,
-// falling back to defaultCol when the resource config does not override
-// the mapping. This makes every well-known field driven by YAML rather
-// than hard-coded constants, so a new resource type can use a different
-// Wiz column without code changes (e.g. EKS using "providerUniqueId"
-// instead of "externalId").
-func (s *GenericInventorySource) column(key, defaultCol string) string {
-	if mapped, ok := s.config.Inventory.FieldMappings[key]; ok && mapped != "" {
+// requiredColumn returns the CSV column for a typed-core key
+// (resource_id, version, engine), or "" when not configured.
+func (s *GenericInventorySource) requiredColumn(key string) string {
+	if mapped, ok := s.config.Inventory.RequiredMappings[key]; ok {
 		return mapped
 	}
-	return defaultCol
+	return ""
 }
 
 // getRequiredColumns builds the list of CSV columns the parser will read,
-// derived entirely from field_mappings (with sensible Wiz defaults).
+// derived entirely from required_mappings + field_mappings.
 //
 // The "nativeType" column is always required because it is used to filter
 // rows down to the resource type before any field extraction happens.
 func (s *GenericInventorySource) getRequiredColumns() []string {
 	columns := []string{
-		s.column("resource_id", colHeaderExternalID),
-		s.column("name", colHeaderName),
+		s.requiredColumn("resource_id"),
 		colHeaderNativeType,
-		s.column("account_id", colHeaderAccountID),
-		s.column("region", colHeaderRegion),
-		s.column("tags", colHeaderTags),
 	}
 
-	// Add version if mapped
-	if v := s.column("version", ""); v != "" {
+	if v := s.requiredColumn("version"); v != "" {
 		columns = append(columns, v)
 	}
-
-	// Add engine if mapped
-	if e := s.column("engine", ""); e != "" {
+	if e := s.requiredColumn("engine"); e != "" {
 		columns = append(columns, e)
+	}
+
+	// Every CSV column referenced by field_mappings is required so the
+	// header validator catches typos at parse start instead of silently
+	// producing empty values.
+	for _, col := range s.config.Inventory.FieldMappings {
+		if col != "" {
+			columns = append(columns, col)
+		}
 	}
 
 	// Lambda needs graphEntity.properties for runtime extraction
@@ -210,33 +208,47 @@ func (s *GenericInventorySource) matchesNativeTypePattern(nativeType string) boo
 	return nativeType == pattern
 }
 
-// parseResourceRow parses a CSV row into a Resource using field mappings
+// parseResourceRow parses a CSV row into a Resource using
+// required_mappings (typed core) and field_mappings (open Fields map).
 func (s *GenericInventorySource) parseResourceRow(
 	ctx context.Context,
 	cols columnIndex,
 	row []string,
 ) (*types.Resource, error) {
-	// All well-known fields are pulled through field_mappings, with the
-	// Wiz canonical column as the default. resource_id is the only
-	// field we strictly require to be present in the row (column() is
-	// validated up front in pkg/config; missing values for optional
-	// fields just produce empty strings on Resource).
-	resourceID, err := cols.require(row, s.column("resource_id", colHeaderExternalID))
+	// resource_id is the only field strictly required to be present
+	// in the row. The validator in pkg/config has already enforced
+	// that the column is configured.
+	resourceID, err := cols.require(row, s.requiredColumn("resource_id"))
 	if err != nil {
 		return nil, err
 	}
 
-	name := cols.col(row, s.column("name", colHeaderName))
-	if name == "" {
-		name = resourceID // Fallback to ID if name is empty
+	version := cols.col(row, s.requiredColumn("version"))
+	engine := cols.col(row, s.requiredColumn("engine"))
+
+	// Walk every entry in field_mappings. The "tags" entry is special
+	// (parsed JSON → AWS tag map); everything else is a plain CSV
+	// value placed verbatim in Resource.Fields under its YAML key.
+	fields := make(map[string]string, len(s.config.Inventory.FieldMappings))
+	var tags map[string]string
+	for key, col := range s.config.Inventory.FieldMappings {
+		if col == "" {
+			continue
+		}
+		val := cols.col(row, col)
+		if key == "tags" {
+			parsed, perr := ParseTags(val)
+			if perr != nil {
+				s.logger.WarnContext(ctx, "failed to parse tags",
+					"resource_id", resourceID,
+					"error", perr)
+				parsed = nil
+			}
+			tags = parsed
+			continue
+		}
+		fields[key] = val
 	}
-
-	accountID := cols.col(row, s.column("account_id", colHeaderAccountID))
-
-	region := cols.col(row, s.column("region", colHeaderRegion))
-
-	version := cols.col(row, s.column("version", ""))
-	engine := cols.col(row, s.column("engine", ""))
 
 	// Lambda-specific: extract runtime from graphEntity.properties JSON.
 	// The runtime string (e.g., "python3.12", "nodejs20.x") is the cycle
@@ -271,24 +283,25 @@ func (s *GenericInventorySource) parseResourceRow(
 		engine = detectOpenSearchEngine(version)
 	}
 
-	// Parse tags to extract service, brand
-	tagsJSON := cols.col(row, s.column("tags", colHeaderTags))
-	tags, err := ParseTags(tagsJSON)
-	if err != nil {
-		s.logger.WarnContext(ctx, "failed to parse tags",
-			"resource_id", resourceID,
-			"error", err)
-		tags = nil
+	// Fall back to resource_id when name is missing.
+	if name, ok := fields["name"]; !ok || name == "" {
+		fields["name"] = resourceID
 	}
 
-	// Extract service and brand from tags using TagConfig
+	// Derive service / brand from tags. Stored in Fields so downstream
+	// consumers and the JSON output see them consistently with
+	// user-configured fields.
 	tagConfig := DefaultTagConfig()
 	service := tagConfig.GetAppTag(tags)
 	brand := tagConfig.GetBrandTag(tags)
-
-	// If no service in tags, try to extract from resource name
 	if service == "" {
-		service = extractServiceFromName(name)
+		service = extractServiceFromName(fields["name"])
+	}
+	if service != "" {
+		fields["service"] = service
+	}
+	if brand != "" {
+		fields["brand"] = brand
 	}
 
 	// Build resource
@@ -299,16 +312,12 @@ func (s *GenericInventorySource) parseResourceRow(
 
 	resource := &types.Resource{
 		ID:             resourceID,
-		Name:           name,
 		Type:           types.ResourceType(s.config.ID),
 		CloudProvider:  s.CloudProvider(),
-		CloudAccountID: accountID,
-		CloudRegion:    region,
 		CurrentVersion: version,
 		Engine:         engine,
-		Service:        service,
-		Brand:          brand,
 		Tags:           tags,
+		Fields:         fields,
 		DiscoveredAt:   discoveredAt,
 	}
 

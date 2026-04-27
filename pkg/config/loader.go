@@ -62,7 +62,7 @@ func validateConfig(config *ResourcesConfig) error {
 }
 
 // validateFieldMappings ensures that resource_id, version, and engine
-// are present in the resource's field_mappings.
+// are present in the resource's required_mappings.
 //
 // Some resource types are exempt because they don't expose a single CSV
 // column for one or more of those fields:
@@ -85,8 +85,8 @@ func validateFieldMappings(resource *ResourceConfig) error {
 	}
 
 	for _, key := range required {
-		if v := resource.Inventory.FieldMappings[key]; v == "" {
-			return errors.Errorf("inventory.field_mappings.%s is required", key)
+		if v := resource.Inventory.RequiredMappings[key]; v == "" {
+			return errors.Errorf("inventory.required_mappings.%s is required", key)
 		}
 	}
 

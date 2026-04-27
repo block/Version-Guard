@@ -179,15 +179,17 @@ func TestDetect_SingleResourceGreen(t *testing.T) {
 
 	testResource := &types.Resource{
 		ID:             "arn:aws:rds:us-east-1:123456789012:cluster:test-cluster",
-		Name:           "test-cluster",
 		Type:           types.ResourceTypeAurora,
 		CloudProvider:  types.CloudProviderAWS,
-		CloudAccountID: "123456789012",
-		CloudRegion:    "us-east-1",
 		CurrentVersion: "16.1",
 		Engine:         "aurora-postgresql",
-		Service:        "test-service",
-		Brand:          "test-brand",
+		Fields: map[string]string{
+			"name":       "test-cluster",
+			"account_id": "123456789012",
+			"region":     "us-east-1",
+			"service":    "test-service",
+			"brand":      "test-brand",
+		},
 	}
 
 	futureDate := time.Now().AddDate(2, 0, 0)
@@ -235,13 +237,13 @@ func TestDetect_SingleResourceGreen(t *testing.T) {
 
 	finding := findings[0]
 	assert.Equal(t, testResource.ID, finding.ResourceID)
-	assert.Equal(t, testResource.Name, finding.ResourceName)
+	assert.Equal(t, testResource.Field("name"), finding.Field("name"))
 	assert.Equal(t, testResource.Type, finding.ResourceType)
-	assert.Equal(t, testResource.Service, finding.Service)
-	assert.Equal(t, testResource.CloudAccountID, finding.CloudAccountID)
-	assert.Equal(t, testResource.CloudRegion, finding.CloudRegion)
+	assert.Equal(t, testResource.Field("service"), finding.Field("service"))
+	assert.Equal(t, testResource.Field("account_id"), finding.Field("account_id"))
+	assert.Equal(t, testResource.Field("region"), finding.Field("region"))
 	assert.Equal(t, testResource.CloudProvider, finding.CloudProvider)
-	assert.Equal(t, testResource.Brand, finding.Brand)
+	assert.Equal(t, testResource.Field("brand"), finding.Field("brand"))
 	assert.Equal(t, testResource.CurrentVersion, finding.CurrentVersion)
 	assert.Equal(t, testResource.Engine, finding.Engine)
 	assert.Equal(t, types.StatusGreen, finding.Status)

@@ -222,15 +222,13 @@ func (a *Activities) DetectDrift(ctx context.Context, input DetectInput) (*Detec
 		message := a.Policy.GetMessage(resource, lifecycle, status)
 		recommendation := a.Policy.GetRecommendation(resource, lifecycle, status)
 
-		// Create finding
+		// Create finding. Configurable per-resource attributes
+		// (name, account_id, region, service, brand, env, custom keys)
+		// pass through unchanged in Fields/Tags.
 		finding := &types.Finding{
 			ResourceID:     resource.ID,
-			ResourceName:   resource.Name,
 			ResourceType:   resource.Type,
-			Service:        resource.Service,
-			CloudAccountID: resource.CloudAccountID,
-			CloudRegion:    resource.CloudRegion,
-			Brand:          resource.Brand,
+			CloudProvider:  resource.CloudProvider,
 			CurrentVersion: resource.CurrentVersion,
 			Engine:         resource.Engine,
 			Status:         status,
@@ -238,6 +236,7 @@ func (a *Activities) DetectDrift(ctx context.Context, input DetectInput) (*Detec
 			Recommendation: recommendation,
 			EOLDate:        lifecycle.EOLDate,
 			Tags:           resource.Tags,
+			Fields:         resource.Fields,
 		}
 
 		findings = append(findings, finding)

@@ -19,17 +19,15 @@ func TestStore_SaveFindings(t *testing.T) {
 	findings := []*types.Finding{
 		{
 			ResourceID:   "arn:aws:rds:us-east-1:123:cluster:test-1",
-			ResourceName: "test-1",
 			ResourceType: types.ResourceTypeAurora,
 			Status:       types.StatusRed,
-			Service:      "payments",
+			Fields:       map[string]string{"name": "test-1", "service": "payments"},
 		},
 		{
 			ResourceID:   "arn:aws:rds:us-east-1:123:cluster:test-2",
-			ResourceName: "test-2",
 			ResourceType: types.ResourceTypeAurora,
 			Status:       types.StatusGreen,
-			Service:      "billing",
+			Fields:       map[string]string{"name": "test-2", "service": "billing"},
 		},
 	}
 
@@ -51,9 +49,9 @@ func TestStore_GetFinding(t *testing.T) {
 	s := NewStore()
 
 	finding := &types.Finding{
-		ResourceID:   "arn:aws:rds:us-east-1:123:cluster:test",
-		ResourceName: "test",
-		Status:       types.StatusRed,
+		ResourceID: "arn:aws:rds:us-east-1:123:cluster:test",
+		Status:     types.StatusRed,
+		Fields:     map[string]string{"name": "test"},
 	}
 
 	err := s.SaveFindings(ctx, []*types.Finding{finding})
@@ -63,7 +61,7 @@ func TestStore_GetFinding(t *testing.T) {
 	result, err := s.GetFinding(ctx, "arn:aws:rds:us-east-1:123:cluster:test")
 	require.NoError(t, err)
 	require.NotNil(t, result)
-	assert.Equal(t, "test", result.ResourceName)
+	assert.Equal(t, "test", result.Field("name"))
 	assert.Equal(t, types.StatusRed, result.Status)
 
 	// Get non-existent finding
@@ -77,9 +75,9 @@ func TestStore_ListFindings_NoFilters(t *testing.T) {
 	s := NewStore()
 
 	findings := []*types.Finding{
-		{ResourceID: "1", ResourceName: "test-1", Status: types.StatusRed},
-		{ResourceID: "2", ResourceName: "test-2", Status: types.StatusGreen},
-		{ResourceID: "3", ResourceName: "test-3", Status: types.StatusYellow},
+		{ResourceID: "1", Status: types.StatusRed, Fields: map[string]string{"name": "test-1"}},
+		{ResourceID: "2", Status: types.StatusGreen, Fields: map[string]string{"name": "test-2"}},
+		{ResourceID: "3", Status: types.StatusYellow, Fields: map[string]string{"name": "test-3"}},
 	}
 
 	err := s.SaveFindings(ctx, findings)
@@ -96,9 +94,9 @@ func TestStore_ListFindings_FilterByStatus(t *testing.T) {
 	s := NewStore()
 
 	findings := []*types.Finding{
-		{ResourceID: "1", Status: types.StatusRed, Service: "payments"},
-		{ResourceID: "2", Status: types.StatusGreen, Service: "billing"},
-		{ResourceID: "3", Status: types.StatusRed, Service: "analytics"},
+		{ResourceID: "1", Status: types.StatusRed, Fields: map[string]string{"service": "payments"}},
+		{ResourceID: "2", Status: types.StatusGreen, Fields: map[string]string{"service": "billing"}},
+		{ResourceID: "3", Status: types.StatusRed, Fields: map[string]string{"service": "analytics"}},
 	}
 
 	err := s.SaveFindings(ctx, findings)
@@ -122,9 +120,9 @@ func TestStore_ListFindings_FilterByService(t *testing.T) {
 	s := NewStore()
 
 	findings := []*types.Finding{
-		{ResourceID: "1", Status: types.StatusRed, Service: "payments"},
-		{ResourceID: "2", Status: types.StatusGreen, Service: "billing"},
-		{ResourceID: "3", Status: types.StatusRed, Service: "payments"},
+		{ResourceID: "1", Status: types.StatusRed, Fields: map[string]string{"service": "payments"}},
+		{ResourceID: "2", Status: types.StatusGreen, Fields: map[string]string{"service": "billing"}},
+		{ResourceID: "3", Status: types.StatusRed, Fields: map[string]string{"service": "payments"}},
 	}
 
 	err := s.SaveFindings(ctx, findings)
@@ -139,7 +137,7 @@ func TestStore_ListFindings_FilterByService(t *testing.T) {
 	assert.Len(t, results, 2)
 
 	for _, r := range results {
-		assert.Equal(t, "payments", r.Service)
+		assert.Equal(t, "payments", r.Field("service"))
 	}
 }
 
@@ -148,10 +146,10 @@ func TestStore_ListFindings_MultipleFilters(t *testing.T) {
 	s := NewStore()
 
 	findings := []*types.Finding{
-		{ResourceID: "1", Status: types.StatusRed, Service: "payments", Brand: "brand-a"},
-		{ResourceID: "2", Status: types.StatusGreen, Service: "payments", Brand: "brand-a"},
-		{ResourceID: "3", Status: types.StatusRed, Service: "billing", Brand: "brand-b"},
-		{ResourceID: "4", Status: types.StatusRed, Service: "payments", Brand: "brand-b"},
+		{ResourceID: "1", Status: types.StatusRed, Fields: map[string]string{"service": "payments", "brand": "brand-a"}},
+		{ResourceID: "2", Status: types.StatusGreen, Fields: map[string]string{"service": "payments", "brand": "brand-a"}},
+		{ResourceID: "3", Status: types.StatusRed, Fields: map[string]string{"service": "billing", "brand": "brand-b"}},
+		{ResourceID: "4", Status: types.StatusRed, Fields: map[string]string{"service": "payments", "brand": "brand-b"}},
 	}
 
 	err := s.SaveFindings(ctx, findings)

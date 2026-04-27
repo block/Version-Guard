@@ -82,21 +82,21 @@ func (b *Builder) calculateStatistics() {
 			}
 
 			// Service stats
-			if finding.Service != "" {
-				if _, ok := summary.ByService[finding.Service]; !ok {
-					summary.ByService[finding.Service] = &types.ServiceStat{}
+			if service := finding.Field("service"); service != "" {
+				if _, ok := summary.ByService[service]; !ok {
+					summary.ByService[service] = &types.ServiceStat{}
 				}
-				serviceStat := summary.ByService[finding.Service]
+				serviceStat := summary.ByService[service]
 				serviceStat.TotalResources++
 				incrementStatusCount(serviceStat, finding.Status)
 			}
 
 			// Brand stats
-			if finding.Brand != "" {
-				if _, ok := summary.ByBrand[finding.Brand]; !ok {
-					summary.ByBrand[finding.Brand] = &types.BrandStat{}
+			if brand := finding.Field("brand"); brand != "" {
+				if _, ok := summary.ByBrand[brand]; !ok {
+					summary.ByBrand[brand] = &types.BrandStat{}
 				}
-				brandStat := summary.ByBrand[finding.Brand]
+				brandStat := summary.ByBrand[brand]
 				brandStat.TotalResources++
 				incrementBrandStatusCount(brandStat, finding.Status)
 			}

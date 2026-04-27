@@ -29,42 +29,45 @@ func (r ResourceType) String() string {
 	return string(r)
 }
 
-// Resource represents a cloud infrastructure resource with version information
+// Resource represents a cloud infrastructure resource with version information.
+//
+// The Resource struct intentionally has a small, typed core
+// (ID/CurrentVersion/Engine/Type/CloudProvider/DiscoveredAt). Everything
+// else flows through Tags (the parsed AWS tag map) and Fields (an
+// open-ended map of CSV columns and derived attributes). This keeps the
+// Go schema stable while letting users declare new logical fields
+// purely in YAML field_mappings, with no code changes.
 type Resource struct {
-	// Tags are key-value pairs associated with the resource
-	Tags map[string]string
-
 	// DiscoveredAt is the timestamp when this resource was discovered
 	DiscoveredAt time.Time
 
-	// ID is the cloud-specific resource identifier (ARN for AWS, resource path for GCP, etc.)
+	// Tags are AWS resource tags (parsed from the column mapped to
+	// "tags" in field_mappings). Stored as a typed map because it is
+	// structurally different from other fields and is used to derive
+	// service / brand / env (which are themselves stored in Fields).
+	Tags map[string]string
+
+	// Fields holds every CSV value populated from inventory.field_mappings,
+	// plus a few derived attributes (service, brand, env from Tags),
+	// keyed by the YAML logical name (e.g. "name", "account_id",
+	// "region", "service", or any custom key the user adds in YAML).
+	//
+	// Keep this small-typed: values are always strings. Anything
+	// structured (like Tags) gets its own typed home.
+	Fields map[string]string
+
+	// ID is the cloud-specific resource identifier (ARN for AWS,
+	// resource path for GCP, etc.). Sourced from
+	// inventory.required_mappings.resource_id.
 	ID string
 
-	// Name is the human-readable name of the resource
-	Name string
-
-	// Service is the application or service name that owns this resource
-	Service string
-
-	// CloudAccountID is the cloud account identifier
-	// - AWS: Account ID (e.g., "123456789012")
-	// - GCP: Project ID (e.g., "my-project-123")
-	// - Azure: Subscription ID (e.g., "12345678-1234-1234-1234-123456789012")
-	CloudAccountID string
-
-	// CloudRegion is the cloud region where the resource is deployed
-	// - AWS: Region (e.g., "us-east-1")
-	// - GCP: Region (e.g., "us-central1")
-	// - Azure: Region (e.g., "eastus")
-	CloudRegion string
-
-	// Brand is the business unit or brand (e.g., "brand-a", "brand-b")
-	Brand string
-
-	// CurrentVersion is the engine or runtime version currently running
+	// CurrentVersion is the engine or runtime version currently
+	// running. Sourced from inventory.required_mappings.version.
 	CurrentVersion string
 
-	// Engine is the database/cache/runtime engine type (e.g., "aurora-mysql", "postgres", "redis")
+	// Engine is the database/cache/runtime engine type
+	// (e.g. "aurora-mysql", "postgres", "redis"). Sourced from
+	// inventory.required_mappings.engine.
 	Engine string
 
 	// Type is the type of resource (Aurora, CloudSQL, etc.)
@@ -72,6 +75,16 @@ type Resource struct {
 
 	// CloudProvider is the cloud platform hosting this resource (AWS, GCP, Azure)
 	CloudProvider CloudProvider
+}
+
+// Field returns the value of a Fields entry, or "" if the key is
+// missing. Convenience accessor so call sites don't have to nil-check
+// the map.
+func (r *Resource) Field(key string) string {
+	if r.Fields == nil {
+		return ""
+	}
+	return r.Fields[key]
 }
 
 // VersionLifecycle represents the lifecycle information for a specific version
@@ -113,11 +126,12 @@ type VersionLifecycle struct {
 	IsSupported bool
 }
 
-// Finding represents a detected version drift issue
+// Finding represents a detected version drift issue.
+//
+// Mirrors the Resource shape: a small typed core plus Tags and Fields
+// carried through from inventory. New logical fields appear under
+// Fields without requiring a Go schema change.
 type Finding struct {
-	// Tags are the resource's key-value metadata (e.g., AWS resource tags)
-	Tags map[string]string `json:",omitempty"`
-
 	// EOLDate is when the current version reaches End-of-Life
 	EOLDate *time.Time
 
@@ -127,23 +141,16 @@ type Finding struct {
 	// UpdatedAt is when this finding was last updated
 	UpdatedAt time.Time
 
+	// Tags are the resource's AWS tags (passed through from Resource.Tags).
+	Tags map[string]string `json:",omitempty"`
+
+	// Fields are the configurable per-resource attributes
+	// (passed through from Resource.Fields). Includes name,
+	// account_id, region, service, brand, env, and any custom keys.
+	Fields map[string]string `json:",omitempty"`
+
 	// ResourceID is the cloud-specific resource identifier
 	ResourceID string
-
-	// ResourceName is the human-readable name of the resource
-	ResourceName string
-
-	// Service is the application or service name
-	Service string
-
-	// CloudAccountID is the cloud account identifier
-	CloudAccountID string
-
-	// CloudRegion is the cloud region
-	CloudRegion string
-
-	// Brand is the business unit or brand
-	Brand string
 
 	// CurrentVersion is the version currently running
 	CurrentVersion string
@@ -165,6 +172,16 @@ type Finding struct {
 
 	// Status is the compliance status (RED/YELLOW/GREEN/UNKNOWN)
 	Status Status
+}
+
+// Field returns the value of a Fields entry, or "" if the key is
+// missing. Convenience accessor so call sites don't have to nil-check
+// the map.
+func (f *Finding) Field(key string) string {
+	if f.Fields == nil {
+		return ""
+	}
+	return f.Fields[key]
 }
 
 // ScanSummary provides aggregate statistics from a scan

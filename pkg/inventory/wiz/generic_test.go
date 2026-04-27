@@ -294,9 +294,16 @@ func TestParseResourceRow(t *testing.T) {
 		Type:          "aurora",
 		CloudProvider: "aws",
 		Inventory: config.InventoryConfig{
+			RequiredMappings: map[string]string{
+				"resource_id": "externalId",
+				"version":     "versionDetails.version",
+				"engine":      "typeFields.kind",
+			},
 			FieldMappings: map[string]string{
-				"version": "versionDetails.version",
-				"engine":  "typeFields.kind",
+				"name":       "name",
+				"account_id": "cloudAccount.externalId",
+				"region":     "region",
+				"tags":       "tags",
 			},
 		},
 	}
@@ -330,15 +337,15 @@ func TestParseResourceRow(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Equal(t, "arn:aws:rds:us-west-2:123456789012:cluster:my-cluster", resource.ID)
-	assert.Equal(t, "my-cluster", resource.Name)
+	assert.Equal(t, "my-cluster", resource.Field("name"))
 	assert.Equal(t, types.ResourceType("aurora-postgresql"), resource.Type)
 	assert.Equal(t, types.CloudProviderAWS, resource.CloudProvider)
-	assert.Equal(t, "123456789012", resource.CloudAccountID)
-	assert.Equal(t, "us-west-2", resource.CloudRegion)
+	assert.Equal(t, "123456789012", resource.Field("account_id"))
+	assert.Equal(t, "us-west-2", resource.Field("region"))
 	assert.Equal(t, "15.3", resource.CurrentVersion)
 	assert.Equal(t, "aurora-postgresql", resource.Engine)
-	assert.Equal(t, "my-service", resource.Service)
-	assert.Equal(t, "afterpay", resource.Brand)
+	assert.Equal(t, "my-service", resource.Field("service"))
+	assert.Equal(t, "afterpay", resource.Field("brand"))
 	// Verify all tags are stored
 	assert.NotNil(t, resource.Tags)
 	assert.Equal(t, "my-service", resource.Tags["app"])
@@ -353,9 +360,9 @@ func TestParseResourceRow_ConfigurableResourceIDColumn(t *testing.T) {
 		Type:          "eks",
 		CloudProvider: "aws",
 		Inventory: config.InventoryConfig{
-			FieldMappings: map[string]string{
-				"version":     "versionDetails.version",
+			RequiredMappings: map[string]string{
 				"resource_id": "providerUniqueId",
+				"version":     "versionDetails.version",
 			},
 		},
 	}
@@ -396,20 +403,23 @@ func TestParseResourceRow_ConfigurableResourceIDColumn(t *testing.T) {
 
 func TestParseResourceRow_AllMappingsAreConfigurable(t *testing.T) {
 	// Use non-canonical Wiz column names everywhere to prove the parser
-	// reads through field_mappings rather than the hard-coded constants.
+	// reads through required_mappings + field_mappings rather than the
+	// hard-coded constants.
 	cfg := config.ResourceConfig{
 		ID:            "rds",
 		Type:          "rds",
 		CloudProvider: "aws",
 		Inventory: config.InventoryConfig{
-			FieldMappings: map[string]string{
+			RequiredMappings: map[string]string{
 				"resource_id": "MyId",
-				"name":        "MyName",
-				"account_id":  "MyAccount",
-				"region":      "MyRegion",
 				"version":     "MyVersion",
 				"engine":      "MyEngine",
-				"tags":        "MyTags",
+			},
+			FieldMappings: map[string]string{
+				"name":       "MyName",
+				"account_id": "MyAccount",
+				"region":     "MyRegion",
+				"tags":       "MyTags",
 			},
 		},
 	}
@@ -442,18 +452,18 @@ func TestParseResourceRow_AllMappingsAreConfigurable(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, "arn:aws:rds:us-west-2:123456789012:db:my-db", resource.ID)
-	assert.Equal(t, "my-db", resource.Name)
-	assert.Equal(t, "123456789012", resource.CloudAccountID)
-	assert.Equal(t, "us-west-2", resource.CloudRegion)
+	assert.Equal(t, "my-db", resource.Field("name"))
+	assert.Equal(t, "123456789012", resource.Field("account_id"))
+	assert.Equal(t, "us-west-2", resource.Field("region"))
 	assert.Equal(t, "8.0.34", resource.CurrentVersion)
 	assert.Equal(t, "mysql", resource.Engine)
-	assert.Equal(t, "svc", resource.Service)
+	assert.Equal(t, "svc", resource.Field("service"))
 }
 
 func TestGetRequiredColumns_ConfigurableResourceIDColumn(t *testing.T) {
 	cfg := config.ResourceConfig{
 		Inventory: config.InventoryConfig{
-			FieldMappings: map[string]string{
+			RequiredMappings: map[string]string{
 				"resource_id": "providerUniqueId",
 			},
 		},
@@ -473,6 +483,11 @@ func TestParseResourceRow_MissingRequiredFields(t *testing.T) {
 		ID:            "test",
 		Type:          "aurora",
 		CloudProvider: "aws",
+		Inventory: config.InventoryConfig{
+			RequiredMappings: map[string]string{
+				"resource_id": "externalId",
+			},
+		},
 	}
 
 	source := NewGenericInventorySource(&Client{}, &cfg, nil, nil)
@@ -490,11 +505,20 @@ func TestParseResourceRow_MissingRequiredFields(t *testing.T) {
 	assert.Contains(t, err.Error(), "externalId")
 }
 
-func TestParseResourceRow_FallbackToExternalIDForName(t *testing.T) {
+func TestParseResourceRow_FallbackToResourceIDForName(t *testing.T) {
 	cfg := config.ResourceConfig{
 		ID:            "test",
 		Type:          "aurora",
 		CloudProvider: "aws",
+		Inventory: config.InventoryConfig{
+			RequiredMappings: map[string]string{
+				"resource_id": "externalId",
+			},
+			FieldMappings: map[string]string{
+				"name":       "name",
+				"account_id": "cloudAccount.externalId",
+			},
+		},
 	}
 
 	source := NewGenericInventorySource(&Client{}, &cfg, nil, nil)
@@ -515,15 +539,22 @@ func TestParseResourceRow_FallbackToExternalIDForName(t *testing.T) {
 	resource, err := source.parseResourceRow(ctx, cols, row)
 
 	require.NoError(t, err)
-	assert.Equal(t, "test-external-id", resource.Name, "should fallback to external ID when name is empty")
+	assert.Equal(t, "test-external-id", resource.Field("name"), "should fallback to resource ID when name is empty")
 }
 
 func TestGetRequiredColumns(t *testing.T) {
 	cfg := config.ResourceConfig{
 		Inventory: config.InventoryConfig{
+			RequiredMappings: map[string]string{
+				"resource_id": "externalId",
+				"version":     "versionDetails.version",
+				"engine":      "typeFields.kind",
+			},
 			FieldMappings: map[string]string{
-				"version": "versionDetails.version",
-				"engine":  "typeFields.kind",
+				"name":       "name",
+				"account_id": "cloudAccount.externalId",
+				"region":     "region",
+				"tags":       "tags",
 			},
 		},
 	}
@@ -531,17 +562,19 @@ func TestGetRequiredColumns(t *testing.T) {
 	source := NewGenericInventorySource(&Client{}, &cfg, nil, nil)
 	columns := source.getRequiredColumns()
 
-	// Check base columns
-	assert.Contains(t, columns, colHeaderExternalID)
-	assert.Contains(t, columns, colHeaderName)
+	// nativeType is always required (used to filter rows)
 	assert.Contains(t, columns, colHeaderNativeType)
+
+	// Required mappings columns
+	assert.Contains(t, columns, colHeaderExternalID)
+	assert.Contains(t, columns, "versionDetails.version")
+	assert.Contains(t, columns, "typeFields.kind")
+
+	// Field mappings columns
+	assert.Contains(t, columns, colHeaderName)
 	assert.Contains(t, columns, colHeaderAccountID)
 	assert.Contains(t, columns, colHeaderRegion)
 	assert.Contains(t, columns, colHeaderTags)
-
-	// Check mapped columns
-	assert.Contains(t, columns, "versionDetails.version")
-	assert.Contains(t, columns, "typeFields.kind")
 }
 
 func TestGetRequiredColumns_NoMappings(t *testing.T) {
@@ -554,10 +587,9 @@ func TestGetRequiredColumns_NoMappings(t *testing.T) {
 	source := NewGenericInventorySource(&Client{}, &cfg, nil, nil)
 	columns := source.getRequiredColumns()
 
-	// Should still have base columns
-	assert.Contains(t, columns, colHeaderExternalID)
-	assert.Contains(t, columns, colHeaderName)
-	assert.Len(t, columns, 6) // Only the 6 base columns
+	// With no mappings, only nativeType + the empty resource_id slot are present.
+	assert.Contains(t, columns, colHeaderNativeType)
+	assert.Len(t, columns, 2)
 }
 
 func TestListResources_NoReportID(t *testing.T) {
@@ -701,11 +733,14 @@ func TestParseResourceRow_Lambda(t *testing.T) {
 		Type:          "lambda",
 		CloudProvider: "aws",
 		Inventory: config.InventoryConfig{
-			FieldMappings: map[string]string{
-				"region":      "region",
-				"account_id":  "cloudAccount.externalId",
-				"name":        "name",
+			RequiredMappings: map[string]string{
 				"resource_id": "externalId",
+			},
+			FieldMappings: map[string]string{
+				"region":     "region",
+				"account_id": "cloudAccount.externalId",
+				"name":       "name",
+				"tags":       "tags",
 			},
 		},
 	}
@@ -737,15 +772,15 @@ func TestParseResourceRow_Lambda(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Equal(t, "arn:aws:lambda:us-east-1:123456789012:function:my-func", resource.ID)
-	assert.Equal(t, "my-func", resource.Name)
+	assert.Equal(t, "my-func", resource.Field("name"))
 	assert.Equal(t, types.ResourceType("lambda"), resource.Type)
 	assert.Equal(t, types.CloudProviderAWS, resource.CloudProvider)
-	assert.Equal(t, "123456789012", resource.CloudAccountID)
-	assert.Equal(t, "us-east-1", resource.CloudRegion)
+	assert.Equal(t, "123456789012", resource.Field("account_id"))
+	assert.Equal(t, "us-east-1", resource.Field("region"))
 	assert.Equal(t, "python3.12", resource.CurrentVersion)
 	assert.Equal(t, "aws-lambda", resource.Engine)
-	assert.Equal(t, "my-function", resource.Service)
-	assert.Equal(t, "brand-a", resource.Brand)
+	assert.Equal(t, "my-function", resource.Field("service"))
+	assert.Equal(t, "brand-a", resource.Field("brand"))
 }
 
 func TestParseResourceRow_LambdaNoRuntime(t *testing.T) {
@@ -754,11 +789,14 @@ func TestParseResourceRow_LambdaNoRuntime(t *testing.T) {
 		Type:          "lambda",
 		CloudProvider: "aws",
 		Inventory: config.InventoryConfig{
-			FieldMappings: map[string]string{
-				"region":      "region",
-				"account_id":  "cloudAccount.externalId",
-				"name":        "name",
+			RequiredMappings: map[string]string{
 				"resource_id": "externalId",
+			},
+			FieldMappings: map[string]string{
+				"region":     "region",
+				"account_id": "cloudAccount.externalId",
+				"name":       "name",
+				"tags":       "tags",
 			},
 		},
 	}
@@ -795,11 +833,14 @@ func TestGetRequiredColumns_Lambda(t *testing.T) {
 	cfg := config.ResourceConfig{
 		Type: "lambda",
 		Inventory: config.InventoryConfig{
-			FieldMappings: map[string]string{
-				"region":      "region",
-				"account_id":  "cloudAccount.externalId",
-				"name":        "name",
+			RequiredMappings: map[string]string{
 				"resource_id": "externalId",
+			},
+			FieldMappings: map[string]string{
+				"region":     "region",
+				"account_id": "cloudAccount.externalId",
+				"name":       "name",
+				"tags":       "tags",
 			},
 		},
 	}
@@ -834,11 +875,14 @@ func TestListResources_LambdaFixture(t *testing.T) {
 		CloudProvider: "aws",
 		Inventory: config.InventoryConfig{
 			NativeTypePattern: "lambda",
-			FieldMappings: map[string]string{
-				"region":      "region",
-				"account_id":  "cloudAccount.externalId",
-				"name":        "name",
+			RequiredMappings: map[string]string{
 				"resource_id": "externalId",
+			},
+			FieldMappings: map[string]string{
+				"region":     "region",
+				"account_id": "cloudAccount.externalId",
+				"name":       "name",
+				"tags":       "tags",
 			},
 		},
 	}
@@ -855,7 +899,7 @@ func TestListResources_LambdaFixture(t *testing.T) {
 	// Verify runtime extraction for each resource
 	runtimeMap := make(map[string]string)
 	for _, r := range resources {
-		runtimeMap[r.Name] = r.CurrentVersion
+		runtimeMap[r.Field("name")] = r.CurrentVersion
 	}
 
 	assert.Equal(t, "python3.8", runtimeMap["legacy-python38"])
@@ -867,7 +911,7 @@ func TestListResources_LambdaFixture(t *testing.T) {
 
 	// All returned resources should have engine "aws-lambda"
 	for _, r := range resources {
-		assert.Equal(t, "aws-lambda", r.Engine, "resource %s should have engine aws-lambda", r.Name)
+		assert.Equal(t, "aws-lambda", r.Engine, "resource %s should have engine aws-lambda", r.Field("name"))
 	}
 
 	mockWizClient.AssertExpectations(t)
@@ -878,6 +922,11 @@ func TestParseResourceRow_WithContextTime(t *testing.T) {
 		ID:            "test",
 		Type:          "aurora",
 		CloudProvider: "aws",
+		Inventory: config.InventoryConfig{
+			RequiredMappings: map[string]string{
+				"resource_id": "externalId",
+			},
+		},
 	}
 
 	source := NewGenericInventorySource(&Client{}, &cfg, nil, nil)

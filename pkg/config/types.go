@@ -15,8 +15,18 @@ type ResourceConfig struct {
 	EOL           EOLConfig       `yaml:"eol"`
 }
 
-// InventoryConfig defines inventory source configuration
+// InventoryConfig defines inventory source configuration.
+//
+// The mappings split into two sections to make the schema obvious:
+//   - RequiredMappings (yaml: "required_mappings") contains the typed,
+//     mandatory CSV columns that the parser writes into typed Resource
+//     fields: resource_id, version, engine.
+//   - FieldMappings (yaml: "field_mappings") contains every other CSV
+//     column; values land in Resource.Fields keyed by the YAML logical
+//     name. Users add a new field by adding a new key here — no code
+//     changes required.
 type InventoryConfig struct {
+	RequiredMappings  map[string]string `yaml:"required_mappings"`
 	FieldMappings     map[string]string `yaml:"field_mappings"`
 	Source            string            `yaml:"source"`
 	NativeTypePattern string            `yaml:"native_type_pattern"`

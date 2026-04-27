@@ -134,7 +134,7 @@ func matchesFilters(finding *types.Finding, filters store.FindingFilters) bool {
 		return false
 	}
 
-	if filters.Service != nil && finding.Service != *filters.Service {
+	if filters.Service != nil && finding.Field("service") != *filters.Service {
 		return false
 	}
 
@@ -142,15 +142,15 @@ func matchesFilters(finding *types.Finding, filters store.FindingFilters) bool {
 		return false
 	}
 
-	if filters.CloudAccountID != nil && finding.CloudAccountID != *filters.CloudAccountID {
+	if filters.CloudAccountID != nil && finding.Field("account_id") != *filters.CloudAccountID {
 		return false
 	}
 
-	if filters.CloudRegion != nil && finding.CloudRegion != *filters.CloudRegion {
+	if filters.CloudRegion != nil && finding.Field("region") != *filters.CloudRegion {
 		return false
 	}
 
-	if filters.Brand != nil && finding.Brand != *filters.Brand {
+	if filters.Brand != nil && finding.Field("brand") != *filters.Brand {
 		return false
 	}
 

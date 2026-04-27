@@ -102,16 +102,13 @@ func (d *Detector) detectResource(ctx context.Context, resource *types.Resource)
 	message := d.policy.GetMessage(resource, lifecycle, status)
 	recommendation := d.policy.GetRecommendation(resource, lifecycle, status)
 
-	// Create finding
+	// Create finding. The configurable per-resource attributes
+	// (name, account_id, region, service, brand, env, custom keys)
+	// flow through Fields and Tags unchanged.
 	finding := &types.Finding{
 		ResourceID:     resource.ID,
-		ResourceName:   resource.Name,
 		ResourceType:   resource.Type,
-		Service:        resource.Service,
-		CloudAccountID: resource.CloudAccountID,
-		CloudRegion:    resource.CloudRegion,
 		CloudProvider:  resource.CloudProvider,
-		Brand:          resource.Brand,
 		CurrentVersion: resource.CurrentVersion,
 		Engine:         resource.Engine,
 		Status:         status,
@@ -120,6 +117,8 @@ func (d *Detector) detectResource(ctx context.Context, resource *types.Resource)
 		EOLDate:        lifecycle.EOLDate,
 		DetectedAt:     time.Now(),
 		UpdatedAt:      time.Now(),
+		Tags:           resource.Tags,
+		Fields:         resource.Fields,
 	}
 
 	return finding, nil

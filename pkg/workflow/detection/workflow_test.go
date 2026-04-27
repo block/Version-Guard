@@ -33,17 +33,17 @@ func TestDetectionWorkflow_Success(t *testing.T) {
 	mockResources := []*types.Resource{
 		{
 			ID:             "arn:aws:rds:us-east-1:123:cluster:test-1",
-			Name:           "test-1",
 			Type:           types.ResourceTypeAurora,
 			Engine:         "aurora-mysql",
 			CurrentVersion: "5.6.10a",
+			Fields:         map[string]string{"name": "test-1"},
 		},
 		{
 			ID:             "arn:aws:rds:us-east-1:123:cluster:test-2",
-			Name:           "test-2",
 			Type:           types.ResourceTypeAurora,
 			Engine:         "aurora-mysql",
 			CurrentVersion: "8.0.35",
+			Fields:         map[string]string{"name": "test-2"},
 		},
 	}
 

@@ -22,13 +22,14 @@ resources:
     inventory:
       source: wiz
       native_type_pattern: "rds/AmazonAuroraPostgreSQL/cluster"
-      field_mappings:
-        engine: "typeFields.kind"
+      required_mappings:
+        resource_id: "externalId"
         version: "versionDetails.version"
+        engine: "typeFields.kind"
+      field_mappings:
         region: "region"
         account_id: "cloudAccount.externalId"
         name: "name"
-        resource_id: "externalId"
     eol:
       provider: endoflife-date
       product: amazon-aurora-postgresql
@@ -56,9 +57,11 @@ resources:
 	// Verify inventory config
 	assert.Equal(t, "wiz", res.Inventory.Source)
 	assert.Equal(t, "rds/AmazonAuroraPostgreSQL/cluster", res.Inventory.NativeTypePattern)
-	assert.Len(t, res.Inventory.FieldMappings, 6)
-	assert.Equal(t, "typeFields.kind", res.Inventory.FieldMappings["engine"])
-	assert.Equal(t, "versionDetails.version", res.Inventory.FieldMappings["version"])
+	assert.Len(t, res.Inventory.RequiredMappings, 3)
+	assert.Equal(t, "typeFields.kind", res.Inventory.RequiredMappings["engine"])
+	assert.Equal(t, "versionDetails.version", res.Inventory.RequiredMappings["version"])
+	assert.Equal(t, "externalId", res.Inventory.RequiredMappings["resource_id"])
+	assert.Len(t, res.Inventory.FieldMappings, 3)
 
 	// Verify EOL config
 	assert.Equal(t, "endoflife-date", res.EOL.Provider)
@@ -78,7 +81,7 @@ resources:
     inventory:
       source: wiz
       native_type_pattern: "rds/AmazonAuroraPostgreSQL/cluster"
-      field_mappings:
+      required_mappings:
         resource_id: "externalId"
         version: "versionDetails.version"
         engine: "typeFields.kind"
@@ -92,7 +95,7 @@ resources:
     inventory:
       source: wiz
       native_type_pattern: "eks/Cluster"
-      field_mappings:
+      required_mappings:
         resource_id: "providerUniqueId"
         version: "versionDetails.version"
     eol:
@@ -296,19 +299,19 @@ func TestValidateConfig_FieldMappings(t *testing.T) {
 			name:        "missing resource_id fails",
 			resourceTyp: "aurora",
 			mappings:    map[string]string{"version": "v", "engine": "e"},
-			wantErrSub:  "field_mappings.resource_id is required",
+			wantErrSub:  "required_mappings.resource_id is required",
 		},
 		{
 			name:        "missing version fails for non-lambda",
 			resourceTyp: "aurora",
 			mappings:    map[string]string{"resource_id": "id", "engine": "e"},
-			wantErrSub:  "field_mappings.version is required",
+			wantErrSub:  "required_mappings.version is required",
 		},
 		{
 			name:        "missing engine fails for non-lambda/non-eks/non-opensearch",
 			resourceTyp: "aurora",
 			mappings:    map[string]string{"resource_id": "id", "version": "v"},
-			wantErrSub:  "field_mappings.engine is required",
+			wantErrSub:  "required_mappings.engine is required",
 		},
 		{
 			name:        "lambda is exempt from version and engine",
@@ -342,8 +345,8 @@ func TestValidateConfig_FieldMappings(t *testing.T) {
 						Type:          tt.resourceTyp,
 						CloudProvider: "aws",
 						Inventory: InventoryConfig{
-							Source:        "wiz",
-							FieldMappings: tt.mappings,
+							Source:           "wiz",
+							RequiredMappings: tt.mappings,
 						},
 						EOL: EOLConfig{
 							Provider: "endoflife-date",

@@ -40,17 +40,17 @@ func testResources() []*types.Resource {
 	return []*types.Resource{
 		{
 			ID:             "arn:aws:rds:us-east-1:123:cluster:prod-1",
-			Name:           "prod-1",
 			Type:           types.ResourceTypeAurora,
 			Engine:         "aurora-mysql",
 			CurrentVersion: "5.6.10a",
+			Fields:         map[string]string{"name": "prod-1"},
 		},
 		{
 			ID:             "arn:aws:rds:us-east-1:123:cluster:prod-2",
-			Name:           "prod-2",
 			Type:           types.ResourceTypeAurora,
 			Engine:         "aurora-mysql",
 			CurrentVersion: "8.0.35",
+			Fields:         map[string]string{"name": "prod-2"},
 		},
 	}
 }
