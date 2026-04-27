@@ -74,11 +74,14 @@ resources:
       source: wiz                    # Inventory source
       native_type_pattern: "cluster" # Wiz nativeType filter (supports wildcards)
       field_mappings:                # Map Wiz CSV columns to resource fields
-        version: "versionDetails.version"
-        region: "region"
-        account_id: "cloudAccount.externalId"
+        # For EKS, externalId is a Wiz-internal hash; providerUniqueId is the ARN.
+        resource_id: "providerUniqueId"
         name: "name"
-        external_id: "externalId"
+        account_id: "cloudAccount.externalId"
+        region: "region"
+        version: "versionDetails.version"
+        # engine is implicit ("eks") — EKS reports have no engine column.
+        tags: "tags"
     eol:
       provider: endoflife-date       # EOL data provider
       product: amazon-eks            # endoflife.date product ID
@@ -694,12 +697,13 @@ resources:
       source: wiz
       native_type_pattern: "rds/PostgreSQL/instance"
       field_mappings:
-        engine: "typeFields.engine"
-        version: "versionDetails.version"
-        region: "region"
-        account_id: "cloudAccount.externalId"
+        resource_id: "externalId"
         name: "name"
-        external_id: "externalId"
+        account_id: "cloudAccount.externalId"
+        region: "region"
+        version: "versionDetails.version"
+        engine: "typeFields.engine"
+        tags: "tags"
     eol:
       provider: endoflife-date
       product: postgresql

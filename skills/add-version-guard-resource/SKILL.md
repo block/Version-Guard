@@ -119,15 +119,38 @@ head -2 pkg/inventory/wiz/testdata/eks.csv
 head -2 pkg/inventory/wiz/testdata/elasticache.csv
 ```
 
-**Common field mappings** (used across all resources):
-- `externalId` → Resource ID (ARN for AWS)
-- `name` → Resource name
-- `versionDetails.version` → Current version
-- `region` → Cloud region
-- `cloudAccount.externalId` → Account ID
-- `tags` → Extract service/brand/env metadata
-- `nativeType` → Used for filtering (pattern matching)
-- `typeFields.kind` → Engine type (e.g., "Redis", "AuroraMySQL")
+**`field_mappings` keys** — every CSV column the parser reads is driven
+by `field_mappings`. The key is the *logical field*; the value is the
+Wiz CSV column name to read from.
+
+**Required keys**:
+- `resource_id` → CSV column for `Resource.ID`. Usually `"externalId"`
+  (the ARN for most AWS resources). For **EKS**, map this to
+  `"providerUniqueId"` because `externalId` is a Wiz-internal hash.
+- `version` → CSV column for the engine/runtime version. Usually
+  `"versionDetails.version"`.
+- `engine` → CSV column for the engine type. Usually
+  `"typeFields.kind"` (returns values like `"Redis"`, `"AuroraMySQL"`).
+
+**Exemptions for the `version`/`engine` requirement**:
+- `lambda` — version (runtime) is extracted from `graphEntity.properties`
+  JSON, and engine is hard-coded to `"aws-lambda"`. Both keys can be
+  omitted.
+- `eks` — engine is hard-coded to `"eks"` (no engine column in EKS
+  reports). Omit the `engine` key.
+- `opensearch` — engine is derived from the version (Elasticsearch ≤ 7.x
+  vs OpenSearch). Omit the `engine` key.
+
+**Optional keys** (Wiz canonical defaults shown in parens):
+- `name` (`"name"`) → `Resource.Name`
+- `account_id` (`"cloudAccount.externalId"`) → `Resource.CloudAccountID`
+- `region` (`"region"`) → `Resource.CloudRegion`
+- `tags` (`"tags"`) → JSON-encoded tags used for `service`/`brand`/`env`
+  extraction.
+
+**Always read by the parser** (not configurable):
+- `nativeType` → used to filter rows by `native_type_pattern`.
+- `graphEntity.properties` → required for `type: lambda` runtime extraction.
 
 **Identify the native_type_pattern**:
 - Aurora: `"rds/AmazonAurora*/cluster"`
@@ -167,12 +190,13 @@ Example for OpenSearch:
       source: wiz
       native_type_pattern: "opensearch/Domain"
       field_mappings:
-        engine: "typeFields.kind"
-        version: "versionDetails.version"
-        region: "region"
-        account_id: "cloudAccount.externalId"
+        resource_id: "externalId"
         name: "name"
-        external_id: "externalId"
+        account_id: "cloudAccount.externalId"
+        region: "region"
+        version: "versionDetails.version"
+        # engine is derived from version (Elasticsearch <= 7.x vs OpenSearch).
+        tags: "tags"
     eol:
       provider: endoflife-date
       product: amazon-opensearch

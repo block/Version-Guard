@@ -13,12 +13,13 @@
       source: wiz
       native_type_pattern: "rds/AmazonAuroraPostgreSQL/cluster"
       field_mappings:
-        engine: "typeFields.kind"
-        version: "versionDetails.version"
-        region: "region"
-        account_id: "cloudAccount.externalId"
+        resource_id: "externalId"
         name: "name"
-        external_id: "externalId"
+        account_id: "cloudAccount.externalId"
+        region: "region"
+        version: "versionDetails.version"
+        engine: "typeFields.kind"
+        tags: "tags"
     eol:
       provider: endoflife-date
       product: amazon-aurora-postgresql

@@ -28,7 +28,7 @@ resources:
         region: "region"
         account_id: "cloudAccount.externalId"
         name: "name"
-        external_id: "externalId"
+        resource_id: "externalId"
     eol:
       provider: endoflife-date
       product: amazon-aurora-postgresql
@@ -79,7 +79,9 @@ resources:
       source: wiz
       native_type_pattern: "rds/AmazonAuroraPostgreSQL/cluster"
       field_mappings:
+        resource_id: "externalId"
         version: "versionDetails.version"
+        engine: "typeFields.kind"
     eol:
       provider: endoflife-date
       product: amazon-aurora-postgresql
@@ -91,6 +93,7 @@ resources:
       source: wiz
       native_type_pattern: "eks/Cluster"
       field_mappings:
+        resource_id: "providerUniqueId"
         version: "versionDetails.version"
     eol:
       provider: endoflife-date
@@ -280,6 +283,85 @@ func TestValidateConfig_MissingEOLProvider(t *testing.T) {
 	err := validateConfig(cfg)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "eol.provider is required")
+}
+
+func TestValidateConfig_FieldMappings(t *testing.T) {
+	tests := []struct {
+		name        string
+		resourceTyp string
+		mappings    map[string]string
+		wantErrSub  string
+	}{
+		{
+			name:        "missing resource_id fails",
+			resourceTyp: "aurora",
+			mappings:    map[string]string{"version": "v", "engine": "e"},
+			wantErrSub:  "field_mappings.resource_id is required",
+		},
+		{
+			name:        "missing version fails for non-lambda",
+			resourceTyp: "aurora",
+			mappings:    map[string]string{"resource_id": "id", "engine": "e"},
+			wantErrSub:  "field_mappings.version is required",
+		},
+		{
+			name:        "missing engine fails for non-lambda/non-eks/non-opensearch",
+			resourceTyp: "aurora",
+			mappings:    map[string]string{"resource_id": "id", "version": "v"},
+			wantErrSub:  "field_mappings.engine is required",
+		},
+		{
+			name:        "lambda is exempt from version and engine",
+			resourceTyp: "lambda",
+			mappings:    map[string]string{"resource_id": "id"},
+		},
+		{
+			name:        "eks is exempt from engine",
+			resourceTyp: "eks",
+			mappings:    map[string]string{"resource_id": "id", "version": "v"},
+		},
+		{
+			name:        "opensearch is exempt from engine",
+			resourceTyp: "opensearch",
+			mappings:    map[string]string{"resource_id": "id", "version": "v"},
+		},
+		{
+			name:        "all required mappings present",
+			resourceTyp: "aurora",
+			mappings:    map[string]string{"resource_id": "id", "version": "v", "engine": "e"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &ResourcesConfig{
+				Version: "v1",
+				Resources: []ResourceConfig{
+					{
+						ID:            "test",
+						Type:          tt.resourceTyp,
+						CloudProvider: "aws",
+						Inventory: InventoryConfig{
+							Source:        "wiz",
+							FieldMappings: tt.mappings,
+						},
+						EOL: EOLConfig{
+							Provider: "endoflife-date",
+							Product:  "test",
+						},
+					},
+				},
+			}
+
+			err := validateConfig(cfg)
+			if tt.wantErrSub == "" {
+				assert.NoError(t, err)
+			} else {
+				assert.Error(t, err)
+				assert.Contains(t, err.Error(), tt.wantErrSub)
+			}
+		})
+	}
 }
 
 func TestValidateConfig_MissingEOLProduct(t *testing.T) {
