@@ -29,7 +29,6 @@ type SnapshotSummary struct {
 	CompliancePercentage float64                      `json:"compliance_percentage"`
 	ByResourceType       map[ResourceType]*TypeStat   `json:"by_resource_type"`
 	ByService            map[string]*ServiceStat      `json:"by_service"`
-	ByBrand              map[string]*BrandStat        `json:"by_brand"`
 	ByCloudProvider      map[CloudProvider]*CloudStat `json:"by_cloud_provider"`
 }
 
@@ -45,16 +44,6 @@ type TypeStat struct {
 
 // ServiceStat provides statistics for a specific service
 type ServiceStat struct {
-	TotalResources       int     `json:"total_resources"`
-	RedCount             int     `json:"red_count"`
-	YellowCount          int     `json:"yellow_count"`
-	GreenCount           int     `json:"green_count"`
-	UnknownCount         int     `json:"unknown_count"`
-	CompliancePercentage float64 `json:"compliance_percentage"`
-}
-
-// BrandStat provides statistics for a specific brand
-type BrandStat struct {
 	TotalResources       int     `json:"total_resources"`
 	RedCount             int     `json:"red_count"`
 	YellowCount          int     `json:"yellow_count"`

@@ -188,7 +188,6 @@ func TestDetect_SingleResourceGreen(t *testing.T) {
 			"account_id": "123456789012",
 			"region":     "us-east-1",
 			"service":    "test-service",
-			"brand":      "test-brand",
 		},
 	}
 
@@ -243,7 +242,6 @@ func TestDetect_SingleResourceGreen(t *testing.T) {
 	assert.Equal(t, testResource.Field("account_id"), finding.Field("account_id"))
 	assert.Equal(t, testResource.Field("region"), finding.Field("region"))
 	assert.Equal(t, testResource.CloudProvider, finding.CloudProvider)
-	assert.Equal(t, testResource.Field("brand"), finding.Field("brand"))
 	assert.Equal(t, testResource.CurrentVersion, finding.CurrentVersion)
 	assert.Equal(t, testResource.Engine, finding.Engine)
 	assert.Equal(t, types.StatusGreen, finding.Status)

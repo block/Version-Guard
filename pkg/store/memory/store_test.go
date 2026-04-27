@@ -146,23 +146,23 @@ func TestStore_ListFindings_MultipleFilters(t *testing.T) {
 	s := NewStore()
 
 	findings := []*types.Finding{
-		{ResourceID: "1", Status: types.StatusRed, Fields: map[string]string{"service": "payments", "brand": "brand-a"}},
-		{ResourceID: "2", Status: types.StatusGreen, Fields: map[string]string{"service": "payments", "brand": "brand-a"}},
-		{ResourceID: "3", Status: types.StatusRed, Fields: map[string]string{"service": "billing", "brand": "brand-b"}},
-		{ResourceID: "4", Status: types.StatusRed, Fields: map[string]string{"service": "payments", "brand": "brand-b"}},
+		{ResourceID: "1", Status: types.StatusRed, Fields: map[string]string{"service": "payments", "region": "us-east-1"}},
+		{ResourceID: "2", Status: types.StatusGreen, Fields: map[string]string{"service": "payments", "region": "us-east-1"}},
+		{ResourceID: "3", Status: types.StatusRed, Fields: map[string]string{"service": "billing", "region": "us-west-2"}},
+		{ResourceID: "4", Status: types.StatusRed, Fields: map[string]string{"service": "payments", "region": "us-west-2"}},
 	}
 
 	err := s.SaveFindings(ctx, findings)
 	require.NoError(t, err)
 
-	// Filter by status AND service AND brand
+	// Filter by status AND service AND region
 	statusRed := types.StatusRed
 	service := "payments"
-	brand := "brand-a"
+	region := "us-east-1"
 	results, err := s.ListFindings(ctx, store.FindingFilters{
-		Status:  &statusRed,
-		Service: &service,
-		Brand:   &brand,
+		Status:      &statusRed,
+		Service:     &service,
+		CloudRegion: &region,
 	})
 	require.NoError(t, err)
 	assert.Len(t, results, 1)

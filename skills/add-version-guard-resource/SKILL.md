@@ -145,8 +145,7 @@ Wiz CSV column name to read from.
 - `name` (`"name"`) → `Resource.Name`
 - `account_id` (`"cloudAccount.externalId"`) → `Resource.CloudAccountID`
 - `region` (`"region"`) → `Resource.CloudRegion`
-- `tags` (`"tags"`) → JSON-encoded tags used for `service`/`brand`/`env`
-  extraction.
+- `tags` (`"tags"`) → JSON-encoded tags used for `service` extraction.
 
 **Always read by the parser** (not configurable):
 - `nativeType` → used to filter rows by `native_type_pattern`.

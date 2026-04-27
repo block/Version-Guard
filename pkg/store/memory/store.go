@@ -150,10 +150,6 @@ func matchesFilters(finding *types.Finding, filters store.FindingFilters) bool {
 		return false
 	}
 
-	if filters.Brand != nil && finding.Field("brand") != *filters.Brand {
-		return false
-	}
-
 	if filters.Engine != nil && finding.Engine != *filters.Engine {
 		return false
 	}

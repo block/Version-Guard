@@ -10,10 +10,6 @@ type TagConfig struct {
 	// EnvTags are the possible tag keys for environment
 	// Checked in order; first match wins
 	EnvTags []string
-
-	// BrandTags are the possible tag keys for brand/business unit
-	// Checked in order; first match wins
-	BrandTags []string
 }
 
 // DefaultTagConfig returns the default tag configuration with common AWS tag naming conventions.
@@ -22,16 +18,14 @@ type TagConfig struct {
 // Example:
 //
 //	customTags := &wiz.TagConfig{
-//	    AppTags:   []string{"my-app-tag", "application"},
-//	    EnvTags:   []string{"environment"},
-//	    BrandTags: []string{"cost-center", "department"},
+//	    AppTags: []string{"my-app-tag", "application"},
+//	    EnvTags: []string{"environment"},
 //	}
 //	source := wiz.NewAuroraInventorySource(client, reportID).WithTagConfig(customTags)
 func DefaultTagConfig() *TagConfig {
 	return &TagConfig{
-		AppTags:   []string{"app", "application", "service"},
-		EnvTags:   []string{"environment", "env"},
-		BrandTags: []string{"brand"},
+		AppTags: []string{"app", "application", "service"},
+		EnvTags: []string{"environment", "env"},
 	}
 }
 
@@ -44,11 +38,6 @@ func (tc *TagConfig) GetAppTag(tags map[string]string) string {
 // GetEnvTag returns the environment tag value if found.
 func (tc *TagConfig) GetEnvTag(tags map[string]string) string {
 	return getFirstMatchingTag(tags, tc.EnvTags)
-}
-
-// GetBrandTag returns the brand tag value if found.
-func (tc *TagConfig) GetBrandTag(tags map[string]string) string {
-	return getFirstMatchingTag(tags, tc.BrandTags)
 }
 
 // getFirstMatchingTag searches for the first matching tag key in order.

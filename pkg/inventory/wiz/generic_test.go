@@ -345,11 +345,9 @@ func TestParseResourceRow(t *testing.T) {
 	assert.Equal(t, "15.3", resource.CurrentVersion)
 	assert.Equal(t, "aurora-postgresql", resource.Engine)
 	assert.Equal(t, "my-service", resource.Field("service"))
-	assert.Equal(t, "afterpay", resource.Field("brand"))
 	// Verify all tags are stored
 	assert.NotNil(t, resource.Tags)
 	assert.Equal(t, "my-service", resource.Tags["app"])
-	assert.Equal(t, "afterpay", resource.Tags["brand"])
 }
 
 func TestParseResourceRow_ConfigurableResourceIDColumn(t *testing.T) {
@@ -780,7 +778,6 @@ func TestParseResourceRow_Lambda(t *testing.T) {
 	assert.Equal(t, "python3.12", resource.CurrentVersion)
 	assert.Equal(t, "aws-lambda", resource.Engine)
 	assert.Equal(t, "my-function", resource.Field("service"))
-	assert.Equal(t, "brand-a", resource.Field("brand"))
 }
 
 func TestParseResourceRow_LambdaNoRuntime(t *testing.T) {

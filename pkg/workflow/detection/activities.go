@@ -223,7 +223,7 @@ func (a *Activities) DetectDrift(ctx context.Context, input DetectInput) (*Detec
 		recommendation := a.Policy.GetRecommendation(resource, lifecycle, status)
 
 		// Create finding. Configurable per-resource attributes
-		// (name, account_id, region, service, brand, env, custom keys)
+		// (name, account_id, region, service, custom keys)
 		// pass through unchanged in Fields/Tags.
 		finding := &types.Finding{
 			ResourceID:     resource.ID,

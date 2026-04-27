@@ -44,11 +44,11 @@ type Resource struct {
 	// Tags are AWS resource tags (parsed from the column mapped to
 	// "tags" in field_mappings). Stored as a typed map because it is
 	// structurally different from other fields and is used to derive
-	// service / brand / env (which are themselves stored in Fields).
+	// service (which is itself stored in Fields).
 	Tags map[string]string
 
 	// Fields holds every CSV value populated from inventory.field_mappings,
-	// plus a few derived attributes (service, brand, env from Tags),
+	// plus a few derived attributes (service from Tags),
 	// keyed by the YAML logical name (e.g. "name", "account_id",
 	// "region", "service", or any custom key the user adds in YAML).
 	//
@@ -146,7 +146,7 @@ type Finding struct {
 
 	// Fields are the configurable per-resource attributes
 	// (passed through from Resource.Fields). Includes name,
-	// account_id, region, service, brand, env, and any custom keys.
+	// account_id, region, service, and any custom keys.
 	Fields map[string]string `json:",omitempty"`
 
 	// ResourceID is the cloud-specific resource identifier

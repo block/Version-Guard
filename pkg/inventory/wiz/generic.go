@@ -288,20 +288,16 @@ func (s *GenericInventorySource) parseResourceRow(
 		fields["name"] = resourceID
 	}
 
-	// Derive service / brand from tags. Stored in Fields so downstream
-	// consumers and the JSON output see them consistently with
+	// Derive service from tags. Stored in Fields so downstream
+	// consumers and the JSON output see it consistently with
 	// user-configured fields.
 	tagConfig := DefaultTagConfig()
 	service := tagConfig.GetAppTag(tags)
-	brand := tagConfig.GetBrandTag(tags)
 	if service == "" {
 		service = extractServiceFromName(fields["name"])
 	}
 	if service != "" {
 		fields["service"] = service
-	}
-	if brand != "" {
-		fields["brand"] = brand
 	}
 
 	// Build resource

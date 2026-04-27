@@ -24,7 +24,6 @@ func NewBuilder() *Builder {
 			Summary: types.SnapshotSummary{
 				ByResourceType:  make(map[types.ResourceType]*types.TypeStat),
 				ByService:       make(map[string]*types.ServiceStat),
-				ByBrand:         make(map[string]*types.BrandStat),
 				ByCloudProvider: make(map[types.CloudProvider]*types.CloudStat),
 			},
 		},
@@ -91,16 +90,6 @@ func (b *Builder) calculateStatistics() {
 				incrementStatusCount(serviceStat, finding.Status)
 			}
 
-			// Brand stats
-			if brand := finding.Field("brand"); brand != "" {
-				if _, ok := summary.ByBrand[brand]; !ok {
-					summary.ByBrand[brand] = &types.BrandStat{}
-				}
-				brandStat := summary.ByBrand[brand]
-				brandStat.TotalResources++
-				incrementBrandStatusCount(brandStat, finding.Status)
-			}
-
 			// Cloud provider stats
 			if _, ok := summary.ByCloudProvider[finding.CloudProvider]; !ok {
 				summary.ByCloudProvider[finding.CloudProvider] = &types.CloudStat{}
@@ -129,13 +118,6 @@ func (b *Builder) calculateStatistics() {
 		}
 	}
 
-	// Calculate compliance percentages for brands
-	for _, brandStat := range summary.ByBrand {
-		if brandStat.TotalResources > 0 {
-			brandStat.CompliancePercentage = (float64(brandStat.GreenCount) / float64(brandStat.TotalResources)) * 100
-		}
-	}
-
 	// Calculate compliance percentages for cloud providers
 	for _, cloudStat := range summary.ByCloudProvider {
 		if cloudStat.TotalResources > 0 {
@@ -145,19 +127,6 @@ func (b *Builder) calculateStatistics() {
 }
 
 func incrementStatusCount(stat *types.ServiceStat, status types.Status) {
-	switch status {
-	case types.StatusRed:
-		stat.RedCount++
-	case types.StatusYellow:
-		stat.YellowCount++
-	case types.StatusGreen:
-		stat.GreenCount++
-	case types.StatusUnknown:
-		stat.UnknownCount++
-	}
-}
-
-func incrementBrandStatusCount(stat *types.BrandStat, status types.Status) {
 	switch status {
 	case types.StatusRed:
 		stat.RedCount++

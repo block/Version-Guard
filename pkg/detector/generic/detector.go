@@ -103,7 +103,7 @@ func (d *Detector) detectResource(ctx context.Context, resource *types.Resource)
 	recommendation := d.policy.GetRecommendation(resource, lifecycle, status)
 
 	// Create finding. The configurable per-resource attributes
-	// (name, account_id, region, service, brand, env, custom keys)
+	// (name, account_id, region, service, custom keys)
 	// flow through Fields and Tags unchanged.
 	finding := &types.Finding{
 		ResourceID:     resource.ID,
