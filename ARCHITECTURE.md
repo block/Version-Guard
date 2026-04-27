@@ -73,14 +73,15 @@ resources:
     inventory:
       source: wiz                    # Inventory source
       native_type_pattern: "cluster" # Wiz nativeType filter (supports wildcards)
-      field_mappings:                # Map Wiz CSV columns to resource fields
+      required_mappings:             # Typed core: Resource.ID / CurrentVersion / Engine
         # For EKS, externalId is a Wiz-internal hash; providerUniqueId is the ARN.
         resource_id: "providerUniqueId"
+        version: "versionDetails.version"
+        # engine is implicit ("eks") — EKS reports have no engine column.
+      field_mappings:                # Open-ended: lands in Resource.Fields[key]
         name: "name"
         account_id: "cloudAccount.externalId"
         region: "region"
-        version: "versionDetails.version"
-        # engine is implicit ("eks") — EKS reports have no engine column.
         tags: "tags"
     eol:
       provider: endoflife-date       # EOL data provider
@@ -696,13 +697,14 @@ resources:
     inventory:
       source: wiz
       native_type_pattern: "rds/PostgreSQL/instance"
-      field_mappings:
+      required_mappings:
         resource_id: "externalId"
+        version: "versionDetails.version"
+        engine: "typeFields.engine"
+      field_mappings:
         name: "name"
         account_id: "cloudAccount.externalId"
         region: "region"
-        version: "versionDetails.version"
-        engine: "typeFields.engine"
         tags: "tags"
     eol:
       provider: endoflife-date
@@ -710,7 +712,9 @@ resources:
       schema: standard
 ```
 
-**Field Mappings:** Map Wiz CSV column names to resource fields.
+**Mappings:** `required_mappings` populates the typed core
+(`Resource.ID`, `CurrentVersion`, `Engine`); `field_mappings` populates
+the open-ended `Resource.Fields` map (accessed via `resource.Field("name")`).
 
 **Native Type Pattern:** The Wiz `nativeType` to filter (supports wildcards like `elastiCache/*/cluster`).
 

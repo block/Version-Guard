@@ -12,13 +12,14 @@
     inventory:
       source: wiz
       native_type_pattern: "rds/AmazonAuroraPostgreSQL/cluster"
-      field_mappings:
+      required_mappings:
         resource_id: "externalId"
+        version: "versionDetails.version"
+        engine: "typeFields.kind"
+      field_mappings:
         name: "name"
         account_id: "cloudAccount.externalId"
         region: "region"
-        version: "versionDetails.version"
-        engine: "typeFields.kind"
         tags: "tags"
     eol:
       provider: endoflife-date

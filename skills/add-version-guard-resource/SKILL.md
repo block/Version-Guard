@@ -119,18 +119,18 @@ head -2 pkg/inventory/wiz/testdata/eks.csv
 head -2 pkg/inventory/wiz/testdata/elasticache.csv
 ```
 
-**`field_mappings` keys** — every CSV column the parser reads is driven
-by `field_mappings`. The key is the *logical field*; the value is the
-Wiz CSV column name to read from.
+**Mapping schema** — every CSV column the parser reads is driven by
+two YAML maps. The key is the *logical field*; the value is the Wiz
+CSV column name to read from.
 
-**Required keys**:
-- `resource_id` → CSV column for `Resource.ID`. Usually `"externalId"`
-  (the ARN for most AWS resources). For **EKS**, map this to
-  `"providerUniqueId"` because `externalId` is a Wiz-internal hash.
-- `version` → CSV column for the engine/runtime version. Usually
-  `"versionDetails.version"`.
-- `engine` → CSV column for the engine type. Usually
-  `"typeFields.kind"` (returns values like `"Redis"`, `"AuroraMySQL"`).
+**`required_mappings`** — the typed core. These columns populate the
+typed fields on `Resource` (`ID`, `CurrentVersion`, `Engine`):
+- `resource_id` → `Resource.ID`. Usually `"externalId"` (the ARN for
+  most AWS resources). For **EKS**, map this to `"providerUniqueId"`
+  because `externalId` is a Wiz-internal hash.
+- `version` → `Resource.CurrentVersion`. Usually `"versionDetails.version"`.
+- `engine` → `Resource.Engine`. Usually `"typeFields.kind"` (returns
+  values like `"Redis"`, `"AuroraMySQL"`).
 
 **Exemptions for the `version`/`engine` requirement**:
 - `lambda` — version (runtime) is extracted from `graphEntity.properties`
@@ -141,11 +141,17 @@ Wiz CSV column name to read from.
 - `opensearch` — engine is derived from the version (Elasticsearch ≤ 7.x
   vs OpenSearch). Omit the `engine` key.
 
-**Optional keys** (Wiz canonical defaults shown in parens):
-- `name` (`"name"`) → `Resource.Name`
-- `account_id` (`"cloudAccount.externalId"`) → `Resource.CloudAccountID`
-- `region` (`"region"`) → `Resource.CloudRegion`
-- `tags` (`"tags"`) → JSON-encoded tags used for `service` extraction.
+**`field_mappings`** — every other CSV column. Values land in
+`Resource.Fields` keyed by the YAML logical name and are accessed via
+`resource.Field("name")`, `resource.Field("region")`, etc. Add new
+custom fields here without touching Go code.
+
+Common keys (with the canonical Wiz column shown in parens):
+- `name` (`"name"`) → `Resource.Field("name")`
+- `account_id` (`"cloudAccount.externalId"`) → `Resource.Field("account_id")`
+- `region` (`"region"`) → `Resource.Field("region")`
+- `tags` (`"tags"`) → JSON-encoded tags parsed into `Resource.Tags` and
+  used for `service` extraction.
 
 **Always read by the parser** (not configurable):
 - `nativeType` → used to filter rows by `native_type_pattern`.
@@ -188,13 +194,14 @@ Example for OpenSearch:
     inventory:
       source: wiz
       native_type_pattern: "opensearch/Domain"
-      field_mappings:
+      required_mappings:
         resource_id: "externalId"
+        version: "versionDetails.version"
+        # engine is derived from version (Elasticsearch <= 7.x vs OpenSearch).
+      field_mappings:
         name: "name"
         account_id: "cloudAccount.externalId"
         region: "region"
-        version: "versionDetails.version"
-        # engine is derived from version (Elasticsearch <= 7.x vs OpenSearch).
         tags: "tags"
     eol:
       provider: endoflife-date

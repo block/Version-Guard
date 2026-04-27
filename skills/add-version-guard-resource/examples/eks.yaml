@@ -14,15 +14,16 @@
     inventory:
       source: wiz
       native_type_pattern: "cluster"
-      field_mappings:
+      required_mappings:
         # For EKS, Wiz's "externalId" column is an internal hash. Map
         # resource_id to "providerUniqueId" so Resource.ID is the cluster ARN.
         resource_id: "providerUniqueId"
+        version: "versionDetails.version"
+        # engine is implicit ("eks") — EKS reports have no engine column.
+      field_mappings:
         name: "name"
         account_id: "cloudAccount.externalId"
         region: "region"
-        version: "versionDetails.version"
-        # engine is implicit ("eks") — EKS reports have no engine column.
         tags: "tags"
     eol:
       provider: endoflife-date
