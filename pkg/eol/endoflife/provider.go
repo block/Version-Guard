@@ -20,17 +20,22 @@ const (
 
 // Provider fetches EOL data for a single endoflife.date product.
 //
-// The product (e.g. "amazon-aurora-postgresql", "amazon-eks") is set at
-// construction time from the YAML-declared eol.product. One Provider
-// instance per resource keeps the engine→product mapping where it
-// already lives — in the resource config file — instead of duplicating
-// it as a hardcoded map in Go.
+// The product (e.g. "amazon-aurora-postgresql", "amazon-eks") and the
+// schema adapter (StandardSchemaAdapter / EKSSchemaAdapter / future
+// per-product adapters) are both set at construction time from
+// YAML-declared eol.product / eol.schema. One Provider instance per
+// resource keeps each product's cache and singleflight key isolated
+// and pushes the "which schema?" decision into config — adding a new
+// product with non-standard endoflife.date semantics is a new adapter
+// + a new schema string in YAML, not a hardcoded product check in
+// Provider.
 //
 //nolint:govet // field alignment sacrificed for readability
 type Provider struct {
 	mu       sync.RWMutex
 	cache    map[string]*cachedVersions
 	client   Client
+	adapter  SchemaAdapter
 	product  string // endoflife.date product identifier (e.g. "amazon-aurora-postgresql")
 	cacheTTL time.Duration
 	group    singleflight.Group // Prevents thundering herd on API calls
@@ -44,9 +49,18 @@ type cachedVersions struct {
 }
 
 // NewProvider creates a new endoflife.date EOL provider bound to a single
-// product. The product MUST be a valid endoflife.date product identifier
-// (the loader validates that eol.product is non-empty).
-func NewProvider(client Client, product string, cacheTTL time.Duration, logger *slog.Logger) *Provider {
+// product and schema. Empty schema defaults to "standard". Returns an
+// error when schema is not a registered adapter — the loader also
+// validates this so misconfiguration fails at startup rather than
+// mid-scan.
+func NewProvider(client Client, product, schema string, cacheTTL time.Duration, logger *slog.Logger) (*Provider, error) {
+	if schema == "" {
+		schema = "standard"
+	}
+	adapter, err := GetSchemaAdapter(schema)
+	if err != nil {
+		return nil, errors.Wrapf(err, "endoflife provider for product %q", product)
+	}
 	if cacheTTL == 0 {
 		cacheTTL = 24 * time.Hour // Default: cache for 24 hours
 	}
@@ -56,11 +70,12 @@ func NewProvider(client Client, product string, cacheTTL time.Duration, logger *
 
 	return &Provider{
 		client:   client,
+		adapter:  adapter,
 		product:  product,
 		cacheTTL: cacheTTL,
 		cache:    make(map[string]*cachedVersions),
 		logger:   logger,
-	}
+	}, nil
 }
 
 // Name returns the name of this provider
@@ -211,120 +226,24 @@ func (p *Provider) ListAllVersions(ctx context.Context, engine string) ([]*types
 	return versions, nil
 }
 
-// convertCycle converts a ProductCycle to our VersionLifecycle type
+// convertCycle delegates the cycle→VersionLifecycle conversion to the
+// schema adapter selected at construction time, then overrides the
+// caller-facing engine label and source.
 //
-// Field mapping:
-//   - cycle.ReleaseDate → ReleaseDate
-//   - cycle.Support → DeprecationDate (end of standard support)
-//   - cycle.EOL → EOLDate
-//   - cycle.ExtendedSupport → ExtendedSupportEnd
+// engine is the resource's engine name (e.g. "eks", "aurora-postgresql")
+// — the adapter's notion of engine is internal and may be empty or a
+// schema-specific placeholder, so we always overwrite it here. product
+// is unused inside the wrapper but accepted for symmetry with logging
+// and future per-product hooks.
 func (p *Provider) convertCycle(engine, product string, cycle *ProductCycle) (*types.VersionLifecycle, error) {
-	version := cycle.Cycle
-
-	lifecycle := &types.VersionLifecycle{
-		Version:   version,
-		Engine:    engine,
-		Source:    p.Name(),
-		FetchedAt: time.Now(),
+	_ = product
+	lifecycle, err := p.adapter.AdaptCycle(cycle)
+	if err != nil {
+		return nil, err
 	}
-
-	// Parse release date
-	if cycle.ReleaseDate != "" {
-		if releaseDate, err := parseDate(cycle.ReleaseDate); err == nil {
-			lifecycle.ReleaseDate = &releaseDate
-		}
-	}
-
-	// Parse EOL date (STANDARD semantics: true end of life)
-	var eolDate *time.Time
-	if dateStr := anyToDateString(cycle.EOL); dateStr != "" {
-		if parsed, err := parseDate(dateStr); err == nil {
-			eolDate = &parsed
-			lifecycle.EOLDate = eolDate
-		}
-	}
-
-	// Parse support date (STANDARD semantics: end of standard support)
-	var supportDate *time.Time
-	if dateStr := anyToDateString(cycle.Support); dateStr != "" {
-		if parsed, err := parseDate(dateStr); err == nil {
-			supportDate = &parsed
-			lifecycle.DeprecationDate = supportDate
-		}
-	}
-
-	// Parse extended support
-	var extendedSupportDate *time.Time
-	if cycle.ExtendedSupport != nil {
-		switch v := cycle.ExtendedSupport.(type) {
-		case string:
-			if v != "" && v != falseBool {
-				if parsed, err := parseDate(v); err == nil {
-					extendedSupportDate = &parsed
-					lifecycle.ExtendedSupportEnd = extendedSupportDate
-				}
-			}
-		case bool:
-			// If boolean true, use EOL date as extended support end
-			if v && eolDate != nil {
-				extendedSupportDate = eolDate
-				lifecycle.ExtendedSupportEnd = eolDate
-			}
-		}
-	}
-
-	// Determine lifecycle status based on dates.
-	// For products like EKS, the "support" field is absent and "eol" means
-	// end of standard support while "extendedSupport" is the true end of life.
-	// We treat eolDate as the standard support boundary when supportDate is nil.
-	now := time.Now()
-
-	// Resolve the effective standard-support-end date
-	standardEnd := supportDate
-	if standardEnd == nil {
-		standardEnd = eolDate
-	}
-
-	// Check extended support window first — must come before the EOL check
-	// so that resources in extended support get YELLOW, not RED.
-	if extendedSupportDate != nil && standardEnd != nil && now.After(*standardEnd) {
-		if now.Before(*extendedSupportDate) {
-			// In extended support window
-			lifecycle.IsSupported = true
-			lifecycle.IsExtendedSupport = true
-			lifecycle.IsDeprecated = true
-		} else {
-			// Past extended support — truly EOL
-			lifecycle.IsEOL = true
-			lifecycle.IsSupported = false
-			lifecycle.IsDeprecated = true
-		}
-		return lifecycle, nil
-	}
-
-	// Past EOL with no extended support available
-	if eolDate != nil && now.After(*eolDate) {
-		lifecycle.IsEOL = true
-		lifecycle.IsSupported = false
-		lifecycle.IsDeprecated = true
-		return lifecycle, nil
-	}
-
-	// Past standard support but no extended support info
-	if supportDate != nil && now.After(*supportDate) {
-		lifecycle.IsDeprecated = true
-		lifecycle.IsSupported = false
-		if eolDate != nil && now.Before(*eolDate) {
-			lifecycle.IsEOL = false
-		}
-		return lifecycle, nil
-	}
-
-	// Still in standard support
-	lifecycle.IsSupported = true
-	lifecycle.IsDeprecated = false
-	lifecycle.IsEOL = false
-
+	lifecycle.Engine = engine
+	lifecycle.Source = p.Name()
+	lifecycle.FetchedAt = time.Now()
 	return lifecycle, nil
 }
 

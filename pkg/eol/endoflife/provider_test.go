@@ -2,6 +2,7 @@ package endoflife
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -45,7 +46,7 @@ func TestProvider_GetVersionLifecycle_PostgreSQL(t *testing.T) {
 		},
 	}
 
-	provider := NewProvider(mockClient, "amazon-rds-postgresql", 1*time.Hour, nil)
+	provider, _ := NewProvider(mockClient, "amazon-rds-postgresql", "", 1*time.Hour, nil)
 
 	tests := []struct {
 		name           string
@@ -148,7 +149,7 @@ func TestProvider_ListAllVersions(t *testing.T) {
 		},
 	}
 
-	provider := NewProvider(mockClient, "amazon-rds-postgresql", 1*time.Hour, nil)
+	provider, _ := NewProvider(mockClient, "amazon-rds-postgresql", "", 1*time.Hour, nil)
 
 	versions, err := provider.ListAllVersions(context.Background(), "postgres")
 	if err != nil {
@@ -187,7 +188,7 @@ func TestProvider_Caching(t *testing.T) {
 		},
 	}
 
-	provider := NewProvider(mockClient, "amazon-rds-postgresql", 1*time.Hour, nil)
+	provider, _ := NewProvider(mockClient, "amazon-rds-postgresql", "", 1*time.Hour, nil)
 
 	// First call - should hit API
 	_, err := provider.ListAllVersions(context.Background(), "postgres")
@@ -234,7 +235,7 @@ func TestProvider_CacheExpiration(t *testing.T) {
 	}
 
 	// Very short TTL for testing
-	provider := NewProvider(mockClient, "amazon-rds-postgresql", 50*time.Millisecond, nil)
+	provider, _ := NewProvider(mockClient, "amazon-rds-postgresql", "", 50*time.Millisecond, nil)
 
 	// First call
 	_, err := provider.ListAllVersions(context.Background(), "postgres")
@@ -272,7 +273,7 @@ func TestProvider_VersionNotFound(t *testing.T) {
 		},
 	}
 
-	provider := NewProvider(mockClient, "amazon-rds-postgresql", 1*time.Hour, nil)
+	provider, _ := NewProvider(mockClient, "amazon-rds-postgresql", "", 1*time.Hour, nil)
 
 	lifecycle, err := provider.GetVersionLifecycle(context.Background(), "postgres", "99.99")
 	if err != nil {
@@ -292,7 +293,7 @@ func TestProvider_VersionNotFound(t *testing.T) {
 }
 
 func TestProvider_Name(t *testing.T) {
-	provider := NewProvider(&MockClient{}, "amazon-rds-postgresql", 1*time.Hour, nil)
+	provider, _ := NewProvider(&MockClient{}, "amazon-rds-postgresql", "", 1*time.Hour, nil)
 	if name := provider.Name(); name != "endoflife-date-api" {
 		t.Errorf("Name() = %s, want endoflife-date-api", name)
 	}
@@ -303,7 +304,7 @@ func TestProvider_Name(t *testing.T) {
 // exactly that product. Callers iterating multiple providers can use this
 // to disambiguate without needing a Go-side engine→product table.
 func TestProvider_Engines(t *testing.T) {
-	provider := NewProvider(&MockClient{}, "amazon-rds-postgresql", 1*time.Hour, nil)
+	provider, _ := NewProvider(&MockClient{}, "amazon-rds-postgresql", "", 1*time.Hour, nil)
 	engines := provider.Engines()
 
 	if len(engines) != 1 || engines[0] != "amazon-rds-postgresql" {
@@ -311,6 +312,11 @@ func TestProvider_Engines(t *testing.T) {
 	}
 }
 
+// TestProvider_EKS pins the EKS-adapter wiring: when the YAML declares
+// schema: eks_adapter, the provider must dispatch cycle conversion
+// through the EKS adapter (NOT the standard one) so EKS's non-standard
+// endoflife.date schema (cycle.eol = end of EXTENDED support, not true
+// EOL) is interpreted correctly.
 func TestProvider_EKS(t *testing.T) {
 	mockClient := &MockClient{
 		GetProductCyclesFunc: func(ctx context.Context, product string) ([]*ProductCycle, error) {
@@ -328,7 +334,10 @@ func TestProvider_EKS(t *testing.T) {
 		},
 	}
 
-	provider := NewProvider(mockClient, "amazon-eks", 1*time.Hour, nil)
+	provider, err := NewProvider(mockClient, "amazon-eks", "eks_adapter", 1*time.Hour, nil)
+	if err != nil {
+		t.Fatalf("NewProvider() error = %v", err)
+	}
 
 	engines := []string{"kubernetes", "k8s", "eks"}
 	for _, engine := range engines {
@@ -340,15 +349,58 @@ func TestProvider_EKS(t *testing.T) {
 			if len(versions) != 1 {
 				t.Fatalf("Expected 1 version, got %d", len(versions))
 			}
-			if versions[0].Version != "1.32" {
-				t.Errorf("Expected version 1.32, got %s", versions[0].Version)
+			v := versions[0]
+			if v.Version != "1.32" {
+				t.Errorf("Expected version 1.32, got %s", v.Version)
+			}
+			// EKS adapter: cycle.EOL → ExtendedSupportEnd; EOLDate stays nil
+			// because EKS clusters never truly EOL.
+			if v.EOLDate != nil {
+				t.Errorf("EOLDate = %v, want nil (EKS has no true EOL)", v.EOLDate)
+			}
+			if v.ExtendedSupportEnd == nil {
+				t.Error("ExtendedSupportEnd should be set from cycle.EOL under eks_adapter")
 			}
 		})
 	}
 }
 
+// TestNewProvider_InvalidSchema asserts construction-time rejection of
+// unknown schema names — the same coverage applies whether the bad
+// value comes from a YAML typo or a future adapter that's not yet
+// registered. The error message includes the product so operators can
+// trace which resource entry caused the failure.
+func TestNewProvider_InvalidSchema(t *testing.T) {
+	_, err := NewProvider(&MockClient{}, "amazon-eks", "no_such_schema", 1*time.Hour, nil)
+	if err == nil {
+		t.Fatal("expected error for unknown schema, got nil")
+	}
+	if !strings.Contains(err.Error(), "no_such_schema") {
+		t.Errorf("error %q should mention the bad schema name", err)
+	}
+	if !strings.Contains(err.Error(), "amazon-eks") {
+		t.Errorf("error %q should mention the product for traceability", err)
+	}
+}
+
+// TestNewProvider_DefaultSchema asserts that an empty schema string is
+// treated as "standard" so resources that don't declare eol.schema
+// continue to work without any YAML edit.
+func TestNewProvider_DefaultSchema(t *testing.T) {
+	provider, err := NewProvider(&MockClient{}, "amazon-rds-postgresql", "", 1*time.Hour, nil)
+	if err != nil {
+		t.Fatalf("NewProvider() error = %v", err)
+	}
+	if provider.adapter == nil {
+		t.Fatal("adapter must be non-nil after defaulting")
+	}
+	if _, ok := provider.adapter.(*StandardSchemaAdapter); !ok {
+		t.Errorf("adapter type = %T, want *StandardSchemaAdapter", provider.adapter)
+	}
+}
+
 func TestConvertCycle_ExtendedSupport(t *testing.T) {
-	provider := NewProvider(&MockClient{}, "amazon-eks", 1*time.Hour, nil)
+	provider, _ := NewProvider(&MockClient{}, "amazon-eks", "", 1*time.Hour, nil)
 
 	tests := []struct {
 		name                    string
