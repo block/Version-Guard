@@ -2,6 +2,8 @@ package config
 
 import (
 	"os"
+	"sort"
+	"strings"
 
 	"github.com/pkg/errors"
 	"gopkg.in/yaml.v3"
@@ -103,4 +105,60 @@ func validateMappings(resource *ResourceConfig) error {
 	}
 
 	return nil
+}
+
+// FilterResources returns a copy of cfg with Resources narrowed to the
+// IDs listed in ids. ids is whitespace-trimmed and deduplicated; an
+// empty slice (after trimming) is treated as "no filter" and the
+// original config is returned unchanged.
+//
+// Any ID that doesn't match a resource in cfg is reported as an error,
+// listing every unknown ID at once so users can fix typos in a single
+// pass instead of one per run.
+func FilterResources(cfg *ResourcesConfig, ids []string) (*ResourcesConfig, error) {
+	wanted := make(map[string]struct{}, len(ids))
+	for _, raw := range ids {
+		id := strings.TrimSpace(raw)
+		if id == "" {
+			continue
+		}
+		wanted[id] = struct{}{}
+	}
+	if len(wanted) == 0 {
+		return cfg, nil
+	}
+
+	known := make(map[string]struct{}, len(cfg.Resources))
+	filtered := make([]ResourceConfig, 0, len(wanted))
+	for i := range cfg.Resources {
+		r := cfg.Resources[i]
+		known[r.ID] = struct{}{}
+		if _, ok := wanted[r.ID]; ok {
+			filtered = append(filtered, r)
+		}
+	}
+
+	var unknown []string
+	for id := range wanted {
+		if _, ok := known[id]; !ok {
+			unknown = append(unknown, id)
+		}
+	}
+	if len(unknown) > 0 {
+		sort.Strings(unknown)
+		availableList := make([]string, 0, len(known))
+		for id := range known {
+			availableList = append(availableList, id)
+		}
+		sort.Strings(availableList)
+		return nil, errors.Errorf(
+			"unknown resource id(s): %s (known: %s)",
+			strings.Join(unknown, ", "),
+			strings.Join(availableList, ", "),
+		)
+	}
+
+	out := *cfg
+	out.Resources = filtered
+	return &out, nil
 }

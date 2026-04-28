@@ -305,6 +305,7 @@ Version Guard is configured via environment variables or CLI flags:
 | `WIZ_REPORT_IDS` | JSON map of resource ID to Wiz report ID (optional) | - |
 | `EOL_BASE_URL` | Custom endoflife.date API base URL (optional) | `https://endoflife.date/api` |
 | `CONFIG_PATH` | Path to resources config file | `config/resources.yaml` |
+| `RESOURCES` | Comma-separated subset of resource IDs to scan (e.g. `eks,aurora-postgresql`); empty = all | - |
 | `TAG_APP_KEYS` | Comma-separated AWS tag keys for app/service | `app,application,service` |
 | `TAG_ENV_KEYS` | Comma-separated AWS tag keys for environment | `environment,env` |
 | `SCHEDULE_ENABLED` | Enable automatic scheduled scanning | `false` |

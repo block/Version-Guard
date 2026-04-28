@@ -84,6 +84,12 @@ type ServerCLI struct {
 	// Resource configuration
 	ConfigPath string `help:"Path to resources config file" default:"config/resources.yaml" env:"CONFIG_PATH"`
 
+	// Resource subset selector. When non-empty, only the listed resource IDs
+	// (matching ResourceConfig.ID in resources.yaml — e.g. eks, aurora-postgresql)
+	// are loaded; everything else in the YAML is ignored. Empty means run all
+	// resources from the canonical YAML, which is the production default.
+	Resources []string `help:"Comma-separated subset of resource IDs to scan (default: all)" env:"RESOURCES" sep:","`
+
 	// Global flags
 	Verbose bool `short:"v" help:"Enable verbose logging"`
 	DryRun  bool `help:"Run in dry-run mode (no Temporal workers started)"`
@@ -200,6 +206,22 @@ func (s *ServerCLI) Run(_ *kong.Context) error {
 		return fmt.Errorf("failed to load resources config: %w", err)
 	}
 	fmt.Printf("✓ Configuration loaded: %d resource(s) defined\n", len(resourcesConfig.Resources))
+
+	// Apply --resources / RESOURCES subset filter (no-op when empty).
+	// Done as a post-load step so the YAML schema stays the canonical
+	// catalog and the filter only narrows what's run, never invents
+	// new resources.
+	resourcesConfig, err = vgconfig.FilterResources(resourcesConfig, s.Resources)
+	if err != nil {
+		return fmt.Errorf("failed to apply resources filter: %w", err)
+	}
+	if len(s.Resources) > 0 {
+		ids := make([]string, 0, len(resourcesConfig.Resources))
+		for i := range resourcesConfig.Resources {
+			ids = append(ids, resourcesConfig.Resources[i].ID)
+		}
+		fmt.Printf("✓ Resource subset selected: %s\n", strings.Join(ids, ", "))
+	}
 
 	// Build tag configuration from environment variables
 	tagConfig := s.buildTagConfig()

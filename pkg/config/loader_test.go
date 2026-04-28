@@ -381,6 +381,84 @@ func TestValidateConfig_Mappings(t *testing.T) {
 	}
 }
 
+// TestFilterResources covers the resource-subset selector wired up
+// behind the --resources / RESOURCES flag. The contract is:
+//
+//   - empty / whitespace-only input → no filter, original config is
+//     returned unchanged (callers can pass through unconditionally);
+//   - unknown ids → fail-fast with all unknown ids listed in one shot
+//     so users can correct typos without re-running per-id;
+//   - matched ids → only those resources, in canonical YAML order
+//     (config order, not user-supplied order — keeps snapshots and
+//     logs deterministic across CLI/env-var invocations);
+//   - duplicates and surrounding whitespace are silently coalesced
+//     because env-var-as-CSV invites both.
+func TestFilterResources(t *testing.T) {
+	base := func() *ResourcesConfig {
+		return &ResourcesConfig{
+			Version: "v1",
+			Resources: []ResourceConfig{
+				{ID: "aurora-postgresql"},
+				{ID: "eks"},
+				{ID: "lambda"},
+			},
+		}
+	}
+
+	t.Run("empty input returns original config unchanged", func(t *testing.T) {
+		cfg := base()
+		got, err := FilterResources(cfg, nil)
+		require.NoError(t, err)
+		assert.Same(t, cfg, got)
+
+		got, err = FilterResources(cfg, []string{"", "   "})
+		require.NoError(t, err)
+		assert.Same(t, cfg, got)
+	})
+
+	t.Run("filters to subset preserving canonical order", func(t *testing.T) {
+		cfg := base()
+		// Reverse-order request must still come back in YAML order.
+		got, err := FilterResources(cfg, []string{"lambda", "aurora-postgresql"})
+		require.NoError(t, err)
+		require.Len(t, got.Resources, 2)
+		assert.Equal(t, "aurora-postgresql", got.Resources[0].ID)
+		assert.Equal(t, "lambda", got.Resources[1].ID)
+		// Original is untouched.
+		assert.Len(t, cfg.Resources, 3)
+	})
+
+	t.Run("trims whitespace and deduplicates", func(t *testing.T) {
+		cfg := base()
+		got, err := FilterResources(cfg, []string{" eks ", "eks", "eks"})
+		require.NoError(t, err)
+		require.Len(t, got.Resources, 1)
+		assert.Equal(t, "eks", got.Resources[0].ID)
+	})
+
+	t.Run("unknown id fails with full list", func(t *testing.T) {
+		cfg := base()
+		got, err := FilterResources(cfg, []string{"eks", "nope", "also-bogus"})
+		require.Error(t, err)
+		assert.Nil(t, got)
+		// Both unknowns are surfaced in one error so users can fix all
+		// typos in a single edit.
+		assert.Contains(t, err.Error(), "also-bogus")
+		assert.Contains(t, err.Error(), "nope")
+		// And the known list is offered for discoverability.
+		assert.Contains(t, err.Error(), "aurora-postgresql")
+		assert.Contains(t, err.Error(), "lambda")
+	})
+
+	t.Run("filtering to a single resource works", func(t *testing.T) {
+		cfg := base()
+		got, err := FilterResources(cfg, []string{"eks"})
+		require.NoError(t, err)
+		require.Len(t, got.Resources, 1)
+		assert.Equal(t, "eks", got.Resources[0].ID)
+	})
+}
+
 func TestValidateConfig_MissingEOLProduct(t *testing.T) {
 	cfg := &ResourcesConfig{
 		Version: "v1",
