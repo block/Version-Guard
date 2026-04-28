@@ -222,14 +222,12 @@ func (a *Activities) DetectDrift(ctx context.Context, input DetectInput) (*Detec
 		message := a.Policy.GetMessage(resource, lifecycle, status)
 		recommendation := a.Policy.GetRecommendation(resource, lifecycle, status)
 
-		// Create finding
+		// Create finding. Name, account, and region (when configured) are
+		// part of resource.Extra and propagate through verbatim.
 		finding := &types.Finding{
 			ResourceID:     resource.ID,
-			ResourceName:   resource.Name,
 			ResourceType:   resource.Type,
 			Service:        resource.Service,
-			CloudAccountID: resource.CloudAccountID,
-			CloudRegion:    resource.CloudRegion,
 			CloudProvider:  resource.CloudProvider,
 			CurrentVersion: resource.CurrentVersion,
 			Engine:         resource.Engine,

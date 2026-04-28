@@ -289,14 +289,20 @@ func TestNormalizeEngine(t *testing.T) {
 }
 
 func TestParseResourceRow(t *testing.T) {
+	// In v2, name/account_id/region are no longer typed: they're
+	// declared in field_mappings like any other Extra key and routed
+	// verbatim into Resource.Extra under their YAML logical name.
 	cfg := config.ResourceConfig{
 		ID:            "aurora-postgresql",
 		Type:          "aurora",
 		CloudProvider: "aws",
 		Inventory: config.InventoryConfig{
 			FieldMappings: map[string]string{
-				"version": "versionDetails.version",
-				"engine":  "typeFields.kind",
+				"name":       "name",
+				"account_id": "cloudAccount.externalId",
+				"region":     "region",
+				"version":    "versionDetails.version",
+				"engine":     "typeFields.kind",
 			},
 		},
 	}
@@ -330,11 +336,8 @@ func TestParseResourceRow(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Equal(t, "arn:aws:rds:us-west-2:123456789012:cluster:my-cluster", resource.ID)
-	assert.Equal(t, "my-cluster", resource.Name)
 	assert.Equal(t, types.ResourceType("aurora-postgresql"), resource.Type)
 	assert.Equal(t, types.CloudProviderAWS, resource.CloudProvider)
-	assert.Equal(t, "123456789012", resource.CloudAccountID)
-	assert.Equal(t, "us-west-2", resource.CloudRegion)
 	assert.Equal(t, "15.3", resource.CurrentVersion)
 	assert.Equal(t, "aurora-postgresql", resource.Engine)
 	assert.Equal(t, "my-service", resource.Service)
@@ -343,9 +346,11 @@ func TestParseResourceRow(t *testing.T) {
 	assert.NotNil(t, resource.Tags)
 	assert.Equal(t, "my-service", resource.Tags["app"])
 	assert.Equal(t, "afterpay", resource.Tags["brand"])
-	// No user-defined extra fields configured → Extra is nil so it
-	// disappears from the JSON wire format via omitempty.
-	assert.Nil(t, resource.Extra)
+	// In v2, name/account_id/region land in Extra under their YAML
+	// logical names rather than typed fields on Resource.
+	assert.Equal(t, "my-cluster", resource.Extra["name"])
+	assert.Equal(t, "123456789012", resource.Extra["account_id"])
+	assert.Equal(t, "us-west-2", resource.Extra["region"])
 }
 
 // TestParseResourceRow_PopulatesExtraFields verifies that any
@@ -526,13 +531,15 @@ func TestParseResourceRow_AllMappingsAreConfigurable(t *testing.T) {
 	resource, err := source.parseResourceRow(context.Background(), cols, row)
 	require.NoError(t, err)
 
+	// Typed surface in v2: id, version, engine, service.
 	assert.Equal(t, "arn:aws:rds:us-west-2:123456789012:db:my-db", resource.ID)
-	assert.Equal(t, "my-db", resource.Name)
-	assert.Equal(t, "123456789012", resource.CloudAccountID)
-	assert.Equal(t, "us-west-2", resource.CloudRegion)
 	assert.Equal(t, "8.0.34", resource.CurrentVersion)
 	assert.Equal(t, "mysql", resource.Engine)
 	assert.Equal(t, "svc", resource.Service)
+	// name, account_id, region land in Extra in v2.
+	assert.Equal(t, "my-db", resource.Extra["name"])
+	assert.Equal(t, "123456789012", resource.Extra["account_id"])
+	assert.Equal(t, "us-west-2", resource.Extra["region"])
 }
 
 func TestGetRequiredColumns_ConfigurableResourceIDColumn(t *testing.T) {
@@ -575,40 +582,57 @@ func TestParseResourceRow_MissingRequiredFields(t *testing.T) {
 	assert.Contains(t, err.Error(), "externalId")
 }
 
-func TestParseResourceRow_FallbackToExternalIDForName(t *testing.T) {
+// TestParseResourceRow_NoExtrasWhenOnlyTypedKeysMapped verifies that
+// when field_mappings only declares typed keys, Resource.Extra stays
+// nil and disappears from JSON via the omitempty tag.
+func TestParseResourceRow_NoExtrasWhenOnlyTypedKeysMapped(t *testing.T) {
 	cfg := config.ResourceConfig{
 		ID:            "test",
 		Type:          "aurora",
 		CloudProvider: "aws",
+		Inventory: config.InventoryConfig{
+			FieldMappings: map[string]string{
+				"resource_id": "externalId",
+				"version":     "versionDetails.version",
+				"engine":      "typeFields.kind",
+				"tags":        "tags",
+			},
+		},
 	}
 
 	source := NewGenericInventorySource(&Client{}, &cfg, nil, nil)
 
 	cols := columnIndex{
-		colHeaderExternalID: 0,
-		colHeaderName:       1,
-		colHeaderAccountID:  2,
+		colHeaderExternalID:      0,
+		"versionDetails.version": 1,
+		"typeFields.kind":        2,
+		colHeaderTags:            3,
 	}
 
 	row := []string{
-		"test-external-id",
-		"", // Empty name
-		"123456789012",
+		"arn:aws:rds:us-east-1:123:cluster:c1",
+		"15.3",
+		"AuroraPostgreSQL",
+		"[]",
 	}
 
-	ctx := context.Background()
-	resource, err := source.parseResourceRow(ctx, cols, row)
-
+	resource, err := source.parseResourceRow(context.Background(), cols, row)
 	require.NoError(t, err)
-	assert.Equal(t, "test-external-id", resource.Name, "should fallback to external ID when name is empty")
+	assert.Nil(t, resource.Extra,
+		"Extra should be nil when only typed keys are mapped, so it omits from JSON")
 }
 
 func TestGetRequiredColumns(t *testing.T) {
+	// In v2, name/account_id/region are user-declared YAML extras and
+	// only show up in the required column set when explicitly mapped.
 	cfg := config.ResourceConfig{
 		Inventory: config.InventoryConfig{
 			FieldMappings: map[string]string{
-				"version": "versionDetails.version",
-				"engine":  "typeFields.kind",
+				"name":       "name",
+				"account_id": "cloudAccount.externalId",
+				"region":     "region",
+				"version":    "versionDetails.version",
+				"engine":     "typeFields.kind",
 			},
 		},
 	}
@@ -616,17 +640,19 @@ func TestGetRequiredColumns(t *testing.T) {
 	source := NewGenericInventorySource(&Client{}, &cfg, nil, nil)
 	columns := source.getRequiredColumns()
 
-	// Check base columns
+	// Typed defaults always present.
 	assert.Contains(t, columns, colHeaderExternalID)
-	assert.Contains(t, columns, colHeaderName)
 	assert.Contains(t, columns, colHeaderNativeType)
-	assert.Contains(t, columns, colHeaderAccountID)
-	assert.Contains(t, columns, colHeaderRegion)
 	assert.Contains(t, columns, colHeaderTags)
 
-	// Check mapped columns
+	// Mapped typed columns.
 	assert.Contains(t, columns, "versionDetails.version")
 	assert.Contains(t, columns, "typeFields.kind")
+
+	// Mapped Extra columns flow through too.
+	assert.Contains(t, columns, colHeaderName)
+	assert.Contains(t, columns, colHeaderAccountID)
+	assert.Contains(t, columns, colHeaderRegion)
 }
 
 func TestGetRequiredColumns_NoMappings(t *testing.T) {
@@ -639,10 +665,16 @@ func TestGetRequiredColumns_NoMappings(t *testing.T) {
 	source := NewGenericInventorySource(&Client{}, &cfg, nil, nil)
 	columns := source.getRequiredColumns()
 
-	// Should still have base columns
+	// In v2, the base column set is just the typed defaults: the
+	// resource_id default (externalId), nativeType, and tags.
 	assert.Contains(t, columns, colHeaderExternalID)
-	assert.Contains(t, columns, colHeaderName)
-	assert.Len(t, columns, 6) // Only the 6 base columns
+	assert.Contains(t, columns, colHeaderNativeType)
+	assert.Contains(t, columns, colHeaderTags)
+	assert.Len(t, columns, 3, "v2 base column set is exactly: externalId, nativeType, tags")
+	// And confirm the v1 typed-default columns are gone.
+	assert.NotContains(t, columns, colHeaderName)
+	assert.NotContains(t, columns, colHeaderAccountID)
+	assert.NotContains(t, columns, colHeaderRegion)
 }
 
 func TestListResources_NoReportID(t *testing.T) {
@@ -822,14 +854,15 @@ func TestParseResourceRow_Lambda(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Equal(t, "arn:aws:lambda:us-east-1:123456789012:function:my-func", resource.ID)
-	assert.Equal(t, "my-func", resource.Name)
 	assert.Equal(t, types.ResourceType("lambda"), resource.Type)
 	assert.Equal(t, types.CloudProviderAWS, resource.CloudProvider)
-	assert.Equal(t, "123456789012", resource.CloudAccountID)
-	assert.Equal(t, "us-east-1", resource.CloudRegion)
 	assert.Equal(t, "python3.12", resource.CurrentVersion)
 	assert.Equal(t, "aws-lambda", resource.Engine)
 	assert.Equal(t, "my-function", resource.Service)
+	// v2: name, account_id, region travel via Extra.
+	assert.Equal(t, "my-func", resource.Extra["name"])
+	assert.Equal(t, "123456789012", resource.Extra["account_id"])
+	assert.Equal(t, "us-east-1", resource.Extra["region"])
 }
 
 func TestParseResourceRow_LambdaNoRuntime(t *testing.T) {
@@ -936,10 +969,11 @@ func TestListResources_LambdaFixture(t *testing.T) {
 	// because container-image Lambdas are out of scope for EOL detection.
 	require.Len(t, resources, 4)
 
-	// Verify runtime extraction for each resource
+	// Verify runtime extraction for each resource. In v2 the name is
+	// in Extra under the "name" YAML key rather than a typed field.
 	runtimeMap := make(map[string]string)
 	for _, r := range resources {
-		runtimeMap[r.Name] = r.CurrentVersion
+		runtimeMap[r.Extra["name"]] = r.CurrentVersion
 	}
 
 	assert.Equal(t, "python3.8", runtimeMap["legacy-python38"])
@@ -951,7 +985,7 @@ func TestListResources_LambdaFixture(t *testing.T) {
 
 	// All returned resources should have engine "aws-lambda"
 	for _, r := range resources {
-		assert.Equal(t, "aws-lambda", r.Engine, "resource %s should have engine aws-lambda", r.Name)
+		assert.Equal(t, "aws-lambda", r.Engine, "resource %s should have engine aws-lambda", r.Extra["name"])
 	}
 
 	mockWizClient.AssertExpectations(t)

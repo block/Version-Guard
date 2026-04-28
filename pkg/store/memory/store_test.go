@@ -19,14 +19,12 @@ func TestStore_SaveFindings(t *testing.T) {
 	findings := []*types.Finding{
 		{
 			ResourceID:   "arn:aws:rds:us-east-1:123:cluster:test-1",
-			ResourceName: "test-1",
 			ResourceType: types.ResourceTypeAurora,
 			Status:       types.StatusRed,
 			Service:      "payments",
 		},
 		{
 			ResourceID:   "arn:aws:rds:us-east-1:123:cluster:test-2",
-			ResourceName: "test-2",
 			ResourceType: types.ResourceTypeAurora,
 			Status:       types.StatusGreen,
 			Service:      "billing",
@@ -51,9 +49,9 @@ func TestStore_GetFinding(t *testing.T) {
 	s := NewStore()
 
 	finding := &types.Finding{
-		ResourceID:   "arn:aws:rds:us-east-1:123:cluster:test",
-		ResourceName: "test",
-		Status:       types.StatusRed,
+		ResourceID: "arn:aws:rds:us-east-1:123:cluster:test",
+		Status:     types.StatusRed,
+		Engine:     "aurora-postgresql",
 	}
 
 	err := s.SaveFindings(ctx, []*types.Finding{finding})
@@ -63,7 +61,7 @@ func TestStore_GetFinding(t *testing.T) {
 	result, err := s.GetFinding(ctx, "arn:aws:rds:us-east-1:123:cluster:test")
 	require.NoError(t, err)
 	require.NotNil(t, result)
-	assert.Equal(t, "test", result.ResourceName)
+	assert.Equal(t, "aurora-postgresql", result.Engine)
 	assert.Equal(t, types.StatusRed, result.Status)
 
 	// Get non-existent finding
@@ -77,9 +75,9 @@ func TestStore_ListFindings_NoFilters(t *testing.T) {
 	s := NewStore()
 
 	findings := []*types.Finding{
-		{ResourceID: "1", ResourceName: "test-1", Status: types.StatusRed},
-		{ResourceID: "2", ResourceName: "test-2", Status: types.StatusGreen},
-		{ResourceID: "3", ResourceName: "test-3", Status: types.StatusYellow},
+		{ResourceID: "1", Status: types.StatusRed},
+		{ResourceID: "2", Status: types.StatusGreen},
+		{ResourceID: "3", Status: types.StatusYellow},
 	}
 
 	err := s.SaveFindings(ctx, findings)
