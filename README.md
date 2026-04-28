@@ -506,11 +506,11 @@ This project is licensed under the Apache License 2.0 - see the [LICENSE](./LICE
 
 - **Bug reports**: [GitHub Issues](https://github.com/block/Version-Guard/issues)
 - **Feature requests**: [GitHub Discussions](https://github.com/block/Version-Guard/discussions)
-- **Security issues**: Please email security@block.xyz (do not open public issues)
+- **Security issues**: Please report privately via GitHub's [security advisory form](https://github.com/block/Version-Guard/security/advisories/new) (do not open public issues)
 
 ## 🙏 Acknowledgments
 
-Version Guard is maintained by Block, Inc. and the open-source community.
+Version Guard is maintained by the open-source community.
 
 Special thanks to:
 - [Temporal](https://temporal.io) for the workflow orchestration framework
