@@ -231,6 +231,6 @@ Releases are managed by maintainers:
 
 - **General questions**: Use [GitHub Discussions](https://github.com/block/Version-Guard/discussions)
 - **Bug reports**: Use [GitHub Issues](https://github.com/block/Version-Guard/issues)
-- **Security issues**: Email security@block.xyz
+- **Security issues**: Report privately via GitHub's [security advisory form](https://github.com/block/Version-Guard/security/advisories/new) (do not open public issues)
 
 Thank you for contributing to Version Guard!
