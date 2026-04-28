@@ -21,50 +21,24 @@ type Snapshot struct {
 
 // SnapshotSummary provides aggregate statistics across all resource types
 type SnapshotSummary struct {
-	TotalResources       int                          `json:"total_resources"`
-	RedCount             int                          `json:"red_count"`
-	YellowCount          int                          `json:"yellow_count"`
-	GreenCount           int                          `json:"green_count"`
-	UnknownCount         int                          `json:"unknown_count"`
-	CompliancePercentage float64                      `json:"compliance_percentage"`
-	ByResourceType       map[ResourceType]*TypeStat   `json:"by_resource_type"`
-	ByService            map[string]*ServiceStat      `json:"by_service"`
-	ByBrand              map[string]*BrandStat        `json:"by_brand"`
-	ByCloudProvider      map[CloudProvider]*CloudStat `json:"by_cloud_provider"`
+	TotalResources       int                           `json:"total_resources"`
+	RedCount             int                           `json:"red_count"`
+	YellowCount          int                           `json:"yellow_count"`
+	GreenCount           int                           `json:"green_count"`
+	UnknownCount         int                           `json:"unknown_count"`
+	CompliancePercentage float64                       `json:"compliance_percentage"`
+	ByResourceType       map[ResourceType]*StatBucket  `json:"by_resource_type"`
+	ByService            map[string]*StatBucket        `json:"by_service"`
+	ByBrand              map[string]*StatBucket        `json:"by_brand"`
+	ByCloudProvider      map[CloudProvider]*StatBucket `json:"by_cloud_provider"`
 }
 
-// TypeStat provides statistics for a specific resource type
-type TypeStat struct {
-	TotalResources       int     `json:"total_resources"`
-	RedCount             int     `json:"red_count"`
-	YellowCount          int     `json:"yellow_count"`
-	GreenCount           int     `json:"green_count"`
-	UnknownCount         int     `json:"unknown_count"`
-	CompliancePercentage float64 `json:"compliance_percentage"`
-}
-
-// ServiceStat provides statistics for a specific service
-type ServiceStat struct {
-	TotalResources       int     `json:"total_resources"`
-	RedCount             int     `json:"red_count"`
-	YellowCount          int     `json:"yellow_count"`
-	GreenCount           int     `json:"green_count"`
-	UnknownCount         int     `json:"unknown_count"`
-	CompliancePercentage float64 `json:"compliance_percentage"`
-}
-
-// BrandStat provides statistics for a specific brand
-type BrandStat struct {
-	TotalResources       int     `json:"total_resources"`
-	RedCount             int     `json:"red_count"`
-	YellowCount          int     `json:"yellow_count"`
-	GreenCount           int     `json:"green_count"`
-	UnknownCount         int     `json:"unknown_count"`
-	CompliancePercentage float64 `json:"compliance_percentage"`
-}
-
-// CloudStat provides statistics for a specific cloud provider
-type CloudStat struct {
+// StatBucket holds aggregate counts and the derived compliance
+// percentage for an arbitrary grouping (resource type, service, brand,
+// cloud provider, ...). Every group rolls up the same shape, so a single
+// type covers all of them. The wire format is unchanged from the
+// previous per-group structs.
+type StatBucket struct {
 	TotalResources       int     `json:"total_resources"`
 	RedCount             int     `json:"red_count"`
 	YellowCount          int     `json:"yellow_count"`

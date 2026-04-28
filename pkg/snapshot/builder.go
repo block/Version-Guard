@@ -22,10 +22,10 @@ func NewBuilder() *Builder {
 			GeneratedAt:    time.Now(),
 			FindingsByType: make(map[types.ResourceType][]*types.Finding),
 			Summary: types.SnapshotSummary{
-				ByResourceType:  make(map[types.ResourceType]*types.TypeStat),
-				ByService:       make(map[string]*types.ServiceStat),
-				ByBrand:         make(map[string]*types.BrandStat),
-				ByCloudProvider: make(map[types.CloudProvider]*types.CloudStat),
+				ByResourceType:  make(map[types.ResourceType]*types.StatBucket),
+				ByService:       make(map[string]*types.StatBucket),
+				ByBrand:         make(map[string]*types.StatBucket),
+				ByCloudProvider: make(map[types.CloudProvider]*types.StatBucket),
 			},
 		},
 	}
@@ -58,62 +58,33 @@ func (b *Builder) calculateStatistics() {
 
 	// Aggregate across all findings
 	for resourceType, findings := range b.snapshot.FindingsByType {
-		typeStat := &types.TypeStat{}
+		typeStat := &types.StatBucket{}
 
 		for _, finding := range findings {
 			// Overall counts
 			summary.TotalResources++
 			typeStat.TotalResources++
-
-			// Status counts
-			switch finding.Status {
-			case types.StatusRed:
-				summary.RedCount++
-				typeStat.RedCount++
-			case types.StatusYellow:
-				summary.YellowCount++
-				typeStat.YellowCount++
-			case types.StatusGreen:
-				summary.GreenCount++
-				typeStat.GreenCount++
-			case types.StatusUnknown:
-				summary.UnknownCount++
-				typeStat.UnknownCount++
-			}
+			incrementStatusCount(typeStat, finding.Status)
+			incrementSummaryStatusCount(summary, finding.Status)
 
 			// Service stats
 			if finding.Service != "" {
-				if _, ok := summary.ByService[finding.Service]; !ok {
-					summary.ByService[finding.Service] = &types.ServiceStat{}
-				}
-				serviceStat := summary.ByService[finding.Service]
-				serviceStat.TotalResources++
-				incrementStatusCount(serviceStat, finding.Status)
+				bucket := getOrCreate(summary.ByService, finding.Service)
+				incrementStatusCount(bucket, finding.Status)
 			}
 
 			// Brand stats
 			if finding.Brand != "" {
-				if _, ok := summary.ByBrand[finding.Brand]; !ok {
-					summary.ByBrand[finding.Brand] = &types.BrandStat{}
-				}
-				brandStat := summary.ByBrand[finding.Brand]
-				brandStat.TotalResources++
-				incrementBrandStatusCount(brandStat, finding.Status)
+				bucket := getOrCreate(summary.ByBrand, finding.Brand)
+				incrementStatusCount(bucket, finding.Status)
 			}
 
 			// Cloud provider stats
-			if _, ok := summary.ByCloudProvider[finding.CloudProvider]; !ok {
-				summary.ByCloudProvider[finding.CloudProvider] = &types.CloudStat{}
-			}
-			cloudStat := summary.ByCloudProvider[finding.CloudProvider]
-			cloudStat.TotalResources++
-			incrementCloudStatusCount(cloudStat, finding.Status)
+			bucket := getOrCreate(summary.ByCloudProvider, finding.CloudProvider)
+			incrementStatusCount(bucket, finding.Status)
 		}
 
-		// Calculate compliance percentage for this resource type
-		if typeStat.TotalResources > 0 {
-			typeStat.CompliancePercentage = (float64(typeStat.GreenCount) / float64(typeStat.TotalResources)) * 100
-		}
+		typeStat.CompliancePercentage = compliancePercentage(typeStat)
 		summary.ByResourceType[resourceType] = typeStat
 	}
 
@@ -122,29 +93,35 @@ func (b *Builder) calculateStatistics() {
 		summary.CompliancePercentage = (float64(summary.GreenCount) / float64(summary.TotalResources)) * 100
 	}
 
-	// Calculate compliance percentages for services
-	for _, serviceStat := range summary.ByService {
-		if serviceStat.TotalResources > 0 {
-			serviceStat.CompliancePercentage = (float64(serviceStat.GreenCount) / float64(serviceStat.TotalResources)) * 100
-		}
+	// Calculate compliance percentages for the keyed groupings.
+	for _, bucket := range summary.ByService {
+		bucket.CompliancePercentage = compliancePercentage(bucket)
 	}
-
-	// Calculate compliance percentages for brands
-	for _, brandStat := range summary.ByBrand {
-		if brandStat.TotalResources > 0 {
-			brandStat.CompliancePercentage = (float64(brandStat.GreenCount) / float64(brandStat.TotalResources)) * 100
-		}
+	for _, bucket := range summary.ByBrand {
+		bucket.CompliancePercentage = compliancePercentage(bucket)
 	}
-
-	// Calculate compliance percentages for cloud providers
-	for _, cloudStat := range summary.ByCloudProvider {
-		if cloudStat.TotalResources > 0 {
-			cloudStat.CompliancePercentage = (float64(cloudStat.GreenCount) / float64(cloudStat.TotalResources)) * 100
-		}
+	for _, bucket := range summary.ByCloudProvider {
+		bucket.CompliancePercentage = compliancePercentage(bucket)
 	}
 }
 
-func incrementStatusCount(stat *types.ServiceStat, status types.Status) {
+// getOrCreate returns the StatBucket stored under key, lazily inserting
+// a fresh one (and bumping TotalResources) on the first observation.
+// The map type is parameterised so it works for ByService (string keys),
+// ByBrand (string keys), ByResourceType, and ByCloudProvider alike.
+func getOrCreate[K comparable](m map[K]*types.StatBucket, key K) *types.StatBucket {
+	bucket, ok := m[key]
+	if !ok {
+		bucket = &types.StatBucket{}
+		m[key] = bucket
+	}
+	bucket.TotalResources++
+	return bucket
+}
+
+// incrementStatusCount bumps the counter on a StatBucket that matches
+// the given status. All grouping aggregations share this helper.
+func incrementStatusCount(stat *types.StatBucket, status types.Status) {
 	switch status {
 	case types.StatusRed:
 		stat.RedCount++
@@ -157,28 +134,28 @@ func incrementStatusCount(stat *types.ServiceStat, status types.Status) {
 	}
 }
 
-func incrementBrandStatusCount(stat *types.BrandStat, status types.Status) {
+// incrementSummaryStatusCount bumps the top-level Red/Yellow/Green/Unknown
+// counters on the SnapshotSummary itself. Kept separate from
+// incrementStatusCount because SnapshotSummary holds these counts inline
+// rather than in a StatBucket.
+func incrementSummaryStatusCount(summary *types.SnapshotSummary, status types.Status) {
 	switch status {
 	case types.StatusRed:
-		stat.RedCount++
+		summary.RedCount++
 	case types.StatusYellow:
-		stat.YellowCount++
+		summary.YellowCount++
 	case types.StatusGreen:
-		stat.GreenCount++
+		summary.GreenCount++
 	case types.StatusUnknown:
-		stat.UnknownCount++
+		summary.UnknownCount++
 	}
 }
 
-func incrementCloudStatusCount(stat *types.CloudStat, status types.Status) {
-	switch status {
-	case types.StatusRed:
-		stat.RedCount++
-	case types.StatusYellow:
-		stat.YellowCount++
-	case types.StatusGreen:
-		stat.GreenCount++
-	case types.StatusUnknown:
-		stat.UnknownCount++
+// compliancePercentage returns the GreenCount/TotalResources percentage
+// for a bucket, or 0 when the bucket is empty.
+func compliancePercentage(stat *types.StatBucket) float64 {
+	if stat.TotalResources == 0 {
+		return 0
 	}
+	return (float64(stat.GreenCount) / float64(stat.TotalResources)) * 100
 }
