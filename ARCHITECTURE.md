@@ -199,7 +199,8 @@ Version-Guard/
 │   │   ├── endoflife/
 │   │   │   ├── client.go                 # endoflife.date HTTP client
 │   │   │   ├── provider.go               # endoflife.date provider
-│   │   │   └── adapters.go               # Schema adapters (standard, EKS)
+│   │   │   ├── adapters.go               # Schema adapters (standard, EKS)
+│   │   │   └── ADAPTERS.md                # Why EKS needs its own adapter (gotcha doc)
 │   │   └── mock/                         # Mock for tests
 │   │
 │   ├── policy/
