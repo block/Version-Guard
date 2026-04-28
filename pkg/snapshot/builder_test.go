@@ -1,0 +1,148 @@
+package snapshot
+
+import (
+	"encoding/json"
+	"testing"
+	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/block/Version-Guard/pkg/types"
+)
+
+// TestBuilder_AggregationAcrossGroupings exercises the unified
+// StatBucket aggregation: every grouping (resource type, service, brand,
+// cloud provider) plus the top-level summary should land identical
+// per-status counts, totals, and compliance percentages.
+func TestBuilder_AggregationAcrossGroupings(t *testing.T) {
+	findings := []*types.Finding{
+		{
+			ResourceID:    "r1",
+			ResourceType:  types.ResourceTypeAurora,
+			CloudProvider: types.CloudProviderAWS,
+			Service:       "svc-a",
+			Brand:         "brand-x",
+			Status:        types.StatusGreen,
+		},
+		{
+			ResourceID:    "r2",
+			ResourceType:  types.ResourceTypeAurora,
+			CloudProvider: types.CloudProviderAWS,
+			Service:       "svc-a",
+			Brand:         "brand-x",
+			Status:        types.StatusYellow,
+		},
+		{
+			ResourceID:    "r3",
+			ResourceType:  types.ResourceTypeAurora,
+			CloudProvider: types.CloudProviderAWS,
+			Service:       "svc-b",
+			Brand:         "brand-y",
+			Status:        types.StatusRed,
+		},
+		{
+			ResourceID:    "r4",
+			ResourceType:  types.ResourceTypeAurora,
+			CloudProvider: types.CloudProviderAWS,
+			Service:       "", // no service => not counted in ByService
+			Brand:         "", // no brand   => not counted in ByBrand
+			Status:        types.StatusUnknown,
+		},
+	}
+
+	snap := NewBuilder().
+		WithScanTiming(time.Unix(0, 0), time.Unix(60, 0)).
+		AddFindings(types.ResourceTypeAurora, findings).
+		Build()
+
+	require.Equal(t, int64(60), snap.ScanDurationSec)
+
+	// Top-level summary
+	s := snap.Summary
+	assert.Equal(t, 4, s.TotalResources)
+	assert.Equal(t, 1, s.GreenCount)
+	assert.Equal(t, 1, s.YellowCount)
+	assert.Equal(t, 1, s.RedCount)
+	assert.Equal(t, 1, s.UnknownCount)
+	assert.InDelta(t, 25.0, s.CompliancePercentage, 0.001)
+
+	// ByResourceType
+	rt := s.ByResourceType[types.ResourceTypeAurora]
+	require.NotNil(t, rt)
+	assert.Equal(t, 4, rt.TotalResources)
+	assert.Equal(t, 1, rt.GreenCount)
+	assert.InDelta(t, 25.0, rt.CompliancePercentage, 0.001)
+
+	// ByService — empty-service finding is excluded.
+	require.Len(t, s.ByService, 2)
+	assert.Equal(t, 2, s.ByService["svc-a"].TotalResources)
+	assert.Equal(t, 1, s.ByService["svc-a"].GreenCount)
+	assert.Equal(t, 1, s.ByService["svc-a"].YellowCount)
+	assert.InDelta(t, 50.0, s.ByService["svc-a"].CompliancePercentage, 0.001)
+
+	assert.Equal(t, 1, s.ByService["svc-b"].TotalResources)
+	assert.Equal(t, 1, s.ByService["svc-b"].RedCount)
+	assert.InDelta(t, 0.0, s.ByService["svc-b"].CompliancePercentage, 0.001)
+
+	// ByBrand — empty-brand finding is excluded.
+	require.Len(t, s.ByBrand, 2)
+	assert.Equal(t, 2, s.ByBrand["brand-x"].TotalResources)
+	assert.Equal(t, 1, s.ByBrand["brand-y"].TotalResources)
+
+	// ByCloudProvider — every finding contributes.
+	require.Len(t, s.ByCloudProvider, 1)
+	cp := s.ByCloudProvider[types.CloudProviderAWS]
+	assert.Equal(t, 4, cp.TotalResources)
+	assert.Equal(t, 1, cp.GreenCount)
+	assert.Equal(t, 1, cp.YellowCount)
+	assert.Equal(t, 1, cp.RedCount)
+	assert.Equal(t, 1, cp.UnknownCount)
+	assert.InDelta(t, 25.0, cp.CompliancePercentage, 0.001)
+}
+
+// TestBuilder_JSONWireShape locks in the JSON keys produced for the
+// snapshot summary so the StatBucket unification cannot silently change
+// the wire format consumed by downstream tools.
+func TestBuilder_JSONWireShape(t *testing.T) {
+	snap := NewBuilder().
+		AddFindings(types.ResourceTypeAurora, []*types.Finding{
+			{
+				ResourceID:    "r1",
+				ResourceType:  types.ResourceTypeAurora,
+				CloudProvider: types.CloudProviderAWS,
+				Service:       "svc",
+				Brand:         "brand",
+				Status:        types.StatusGreen,
+			},
+		}).
+		Build()
+
+	raw, err := json.Marshal(snap.Summary)
+	require.NoError(t, err)
+
+	var decoded map[string]any
+	require.NoError(t, json.Unmarshal(raw, &decoded))
+
+	for _, key := range []string{
+		"total_resources", "red_count", "yellow_count", "green_count",
+		"unknown_count", "compliance_percentage",
+		"by_resource_type", "by_service", "by_brand", "by_cloud_provider",
+	} {
+		_, ok := decoded[key]
+		assert.True(t, ok, "summary missing top-level key %q", key)
+	}
+
+	// Verify a nested bucket also has the canonical keys.
+	byService, ok := decoded["by_service"].(map[string]any)
+	require.True(t, ok)
+	bucket, ok := byService["svc"].(map[string]any)
+	require.True(t, ok)
+	for _, key := range []string{
+		"total_resources", "red_count", "yellow_count", "green_count",
+		"unknown_count", "compliance_percentage",
+	} {
+		_, ok := bucket[key]
+		assert.True(t, ok, "bucket missing key %q", key)
+	}
+}
