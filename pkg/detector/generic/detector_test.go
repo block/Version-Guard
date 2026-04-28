@@ -179,14 +179,16 @@ func TestDetect_SingleResourceGreen(t *testing.T) {
 
 	testResource := &types.Resource{
 		ID:             "arn:aws:rds:us-east-1:123456789012:cluster:test-cluster",
-		Name:           "test-cluster",
 		Type:           types.ResourceTypeAurora,
 		CloudProvider:  types.CloudProviderAWS,
-		CloudAccountID: "123456789012",
-		CloudRegion:    "us-east-1",
 		CurrentVersion: "16.1",
 		Engine:         "aurora-postgresql",
 		Service:        "test-service",
+		Extra: map[string]string{
+			"name":       "test-cluster",
+			"account_id": "123456789012",
+			"region":     "us-east-1",
+		},
 	}
 
 	futureDate := time.Now().AddDate(2, 0, 0)
@@ -234,14 +236,15 @@ func TestDetect_SingleResourceGreen(t *testing.T) {
 
 	finding := findings[0]
 	assert.Equal(t, testResource.ID, finding.ResourceID)
-	assert.Equal(t, testResource.Name, finding.ResourceName)
 	assert.Equal(t, testResource.Type, finding.ResourceType)
 	assert.Equal(t, testResource.Service, finding.Service)
-	assert.Equal(t, testResource.CloudAccountID, finding.CloudAccountID)
-	assert.Equal(t, testResource.CloudRegion, finding.CloudRegion)
 	assert.Equal(t, testResource.CloudProvider, finding.CloudProvider)
 	assert.Equal(t, testResource.CurrentVersion, finding.CurrentVersion)
 	assert.Equal(t, testResource.Engine, finding.Engine)
+	// Name, account, and region propagate via Extra in v2.
+	assert.Equal(t, "test-cluster", finding.Extra["name"])
+	assert.Equal(t, "123456789012", finding.Extra["account_id"])
+	assert.Equal(t, "us-east-1", finding.Extra["region"])
 	assert.Equal(t, types.StatusGreen, finding.Status)
 	assert.Equal(t, "Version is current", finding.Message)
 	assert.Equal(t, "No action needed", finding.Recommendation)

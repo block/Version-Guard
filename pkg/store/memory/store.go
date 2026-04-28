@@ -142,14 +142,6 @@ func matchesFilters(finding *types.Finding, filters store.FindingFilters) bool {
 		return false
 	}
 
-	if filters.CloudAccountID != nil && finding.CloudAccountID != *filters.CloudAccountID {
-		return false
-	}
-
-	if filters.CloudRegion != nil && finding.CloudRegion != *filters.CloudRegion {
-		return false
-	}
-
 	if filters.Engine != nil && finding.Engine != *filters.Engine {
 		return false
 	}

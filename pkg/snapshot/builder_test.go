@@ -142,3 +142,67 @@ func TestBuilder_JSONWireShape(t *testing.T) {
 		assert.True(t, ok, "bucket missing key %q", key)
 	}
 }
+
+// TestBuilder_V2SchemaBreakWireShape locks in the v2 break:
+//
+//   - snapshot.Version is "v2"
+//   - top-level Finding JSON no longer carries ResourceName,
+//     CloudAccountID, or CloudRegion
+//   - those values flow through Finding.Extra under the YAML logical
+//     names "name", "account_id", "region"
+//
+// Reverting any of these would silently re-introduce the v1 wire shape
+// downstream tools have been told to drop, so the test fails fast on
+// regressions.
+func TestBuilder_V2SchemaBreakWireShape(t *testing.T) {
+	snap := NewBuilder().
+		AddFindings(types.ResourceTypeAurora, []*types.Finding{
+			{
+				ResourceID:    "arn:aws:rds:us-east-1:123:cluster:c1",
+				ResourceType:  types.ResourceTypeAurora,
+				CloudProvider: types.CloudProviderAWS,
+				Service:       "svc",
+				Engine:        "aurora-postgresql",
+				Status:        types.StatusGreen,
+				Extra: map[string]string{
+					"name":       "c1",
+					"account_id": "123456789012",
+					"region":     "us-east-1",
+				},
+			},
+		}).
+		Build()
+
+	assert.Equal(t, "v2", snap.Version,
+		"snapshot schema must advertise v2 once typed core is tightened")
+
+	raw, err := json.Marshal(snap)
+	require.NoError(t, err)
+
+	var decoded map[string]any
+	require.NoError(t, json.Unmarshal(raw, &decoded))
+
+	findingsByType, ok := decoded["findings_by_type"].(map[string]any)
+	require.True(t, ok, "snapshot must carry findings_by_type")
+
+	auroraFindings, ok := findingsByType["AURORA"].([]any)
+	require.True(t, ok, "AURORA findings must marshal as a JSON array")
+	require.Len(t, auroraFindings, 1)
+
+	finding, ok := auroraFindings[0].(map[string]any)
+	require.True(t, ok)
+
+	// v1 top-level keys must be gone.
+	for _, banned := range []string{"ResourceName", "CloudAccountID", "CloudRegion"} {
+		_, present := finding[banned]
+		assert.False(t, present,
+			"v2 finding JSON must not contain top-level %q (moved into Extra)", banned)
+	}
+
+	// The values now live in Extra under their YAML logical names.
+	extra, ok := finding["Extra"].(map[string]any)
+	require.True(t, ok, "v2 finding JSON must carry an Extra map")
+	assert.Equal(t, "c1", extra["name"])
+	assert.Equal(t, "123456789012", extra["account_id"])
+	assert.Equal(t, "us-east-1", extra["region"])
+}

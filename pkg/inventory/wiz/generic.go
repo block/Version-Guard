@@ -128,14 +128,14 @@ func (s *GenericInventorySource) GetResource(ctx context.Context, resourceType t
 }
 
 // wellKnownFieldMappingKeys are the YAML field_mappings keys whose
-// values flow into typed fields on Resource. Anything not in this set
-// is routed verbatim into Resource.Extra so users can declare custom
-// per-resource attributes purely in YAML.
+// values flow into typed fields on Resource. The set is intentionally
+// minimal: only the values the system itself depends on (identity,
+// version-lookup keys, and tags for service derivation) are typed.
+// Everything else — name, account_id, region, owner, cost_center, ... —
+// is routed verbatim into Resource.Extra under its YAML logical name,
+// so adding new per-resource attributes is a YAML-only change.
 var wellKnownFieldMappingKeys = map[string]struct{}{
 	"resource_id": {},
-	"name":        {},
-	"account_id":  {},
-	"region":      {},
 	"version":     {},
 	"engine":      {},
 	"tags":        {},
@@ -155,17 +155,15 @@ func (s *GenericInventorySource) column(key, defaultCol string) string {
 }
 
 // getRequiredColumns builds the list of CSV columns the parser will read,
-// derived entirely from field_mappings (with sensible Wiz defaults).
+// derived entirely from field_mappings (with Wiz defaults for the typed
+// keys: resource_id and tags).
 //
 // The "nativeType" column is always required because it is used to filter
 // rows down to the resource type before any field extraction happens.
 func (s *GenericInventorySource) getRequiredColumns() []string {
 	columns := []string{
 		s.column("resource_id", colHeaderExternalID),
-		s.column("name", colHeaderName),
 		colHeaderNativeType,
-		s.column("account_id", colHeaderAccountID),
-		s.column("region", colHeaderRegion),
 		s.column("tags", colHeaderTags),
 	}
 
@@ -179,9 +177,10 @@ func (s *GenericInventorySource) getRequiredColumns() []string {
 		columns = append(columns, e)
 	}
 
-	// Add any user-defined extra columns so the header validator
-	// catches typos in YAML at parse start instead of silently
-	// producing empty Extra values.
+	// Every non-typed YAML field_mappings entry (name, account_id,
+	// region, owner, cost_center, ...) is required so the Wiz header
+	// validator catches typos in YAML at parse start instead of
+	// silently producing empty Extra values.
 	for key, col := range s.config.Inventory.FieldMappings {
 		if _, isWellKnown := wellKnownFieldMappingKeys[key]; isWellKnown {
 			continue
@@ -236,30 +235,23 @@ func (s *GenericInventorySource) matchesNativeTypePattern(nativeType string) boo
 	return nativeType == pattern
 }
 
-// parseResourceRow parses a CSV row into a Resource using field mappings
+// parseResourceRow parses a CSV row into a Resource using field mappings.
+//
+// Only typed keys (resource_id, version, engine, tags) are read directly
+// onto the Resource. Every other field_mappings entry — including name,
+// account_id, region — is routed verbatim into Resource.Extra under its
+// YAML logical name. resource_id is the only mapping we strictly require
+// to be present in the row; missing values for everything else just
+// produce empty strings.
 func (s *GenericInventorySource) parseResourceRow(
 	ctx context.Context,
 	cols columnIndex,
 	row []string,
 ) (*types.Resource, error) {
-	// All well-known fields are pulled through field_mappings, with the
-	// Wiz canonical column as the default. resource_id is the only
-	// field we strictly require to be present in the row (column() is
-	// validated up front in pkg/config; missing values for optional
-	// fields just produce empty strings on Resource).
 	resourceID, err := cols.require(row, s.column("resource_id", colHeaderExternalID))
 	if err != nil {
 		return nil, err
 	}
-
-	name := cols.col(row, s.column("name", colHeaderName))
-	if name == "" {
-		name = resourceID // Fallback to ID if name is empty
-	}
-
-	accountID := cols.col(row, s.column("account_id", colHeaderAccountID))
-
-	region := cols.col(row, s.column("region", colHeaderRegion))
 
 	version := cols.col(row, s.column("version", ""))
 	engine := cols.col(row, s.column("engine", ""))
@@ -307,20 +299,10 @@ func (s *GenericInventorySource) parseResourceRow(
 		tags = nil
 	}
 
-	// Extract service from tags using TagConfig
-	tagConfig := DefaultTagConfig()
-	service := tagConfig.GetAppTag(tags)
-
-	// If no service in tags, try to extract from resource name
-	if service == "" {
-		service = extractServiceFromName(name)
-	}
-
-	// Collect any user-defined extra fields. Each non-well-known YAML
-	// field_mappings key produces an entry in Resource.Extra keyed by
-	// the YAML logical name. Empty strings still produce an entry so
-	// downstream code can distinguish "configured but missing" from
-	// "not configured at all".
+	// Collect every non-typed YAML field_mappings value into Extra,
+	// keyed by the YAML logical name. Empty strings still produce an
+	// entry so downstream code can distinguish "configured but missing"
+	// from "not configured at all".
 	var extra map[string]string
 	for key, col := range s.config.Inventory.FieldMappings {
 		if _, isWellKnown := wellKnownFieldMappingKeys[key]; isWellKnown {
@@ -335,6 +317,15 @@ func (s *GenericInventorySource) parseResourceRow(
 		extra[key] = cols.col(row, col)
 	}
 
+	// Service derivation: prefer the configured app tag; if none is
+	// present, fall back to extracting a service name from Extra["name"]
+	// (which is the cloud resource name when the user has mapped it).
+	tagConfig := DefaultTagConfig()
+	service := tagConfig.GetAppTag(tags)
+	if service == "" {
+		service = extractServiceFromName(extra["name"])
+	}
+
 	// Build resource
 	discoveredAt := time.Now()
 	if ctxTime, ok := ctx.Value(discoveredAtKey).(time.Time); ok {
@@ -343,11 +334,8 @@ func (s *GenericInventorySource) parseResourceRow(
 
 	resource := &types.Resource{
 		ID:             resourceID,
-		Name:           name,
 		Type:           types.ResourceType(s.config.ID),
 		CloudProvider:  s.CloudProvider(),
-		CloudAccountID: accountID,
-		CloudRegion:    region,
 		CurrentVersion: version,
 		Engine:         engine,
 		Service:        service,

@@ -29,16 +29,28 @@ func (r ResourceType) String() string {
 	return string(r)
 }
 
-// Resource represents a cloud infrastructure resource with version information
+// Resource represents a cloud infrastructure resource with version information.
+//
+// The typed surface intentionally covers only what the system itself needs:
+//   - identity: ID, Type, CloudProvider
+//   - EOL lookup keys: Engine, CurrentVersion
+//   - service grouping: Service (derived from Tags)
+//   - tags as a structural map (used by Service derivation)
+//   - timestamps
+//
+// Everything else, including human-readable name, cloud account, and region,
+// flows through Extra under its YAML logical name (e.g. Extra["name"],
+// Extra["account_id"], Extra["region"]). This keeps the typed core minimal
+// and makes new per-resource attributes a YAML-only change.
 type Resource struct {
 	// Tags are key-value pairs associated with the resource
 	Tags map[string]string
 
-	// Extra carries any additional fields declared in the YAML
-	// inventory.field_mappings that don't correspond to a typed
-	// field on Resource. The map key is the YAML logical name
-	// (e.g. "owner", "cost_center") and the value is the raw CSV
-	// cell. nil when the resource config defines no extra fields.
+	// Extra carries every YAML inventory.field_mappings value that is not
+	// a typed field on Resource. The key is the YAML logical name
+	// (e.g. "name", "account_id", "region", "owner") and the value is
+	// the raw CSV cell. nil when the resource config defines no
+	// non-typed fields.
 	Extra map[string]string `json:",omitempty"`
 
 	// DiscoveredAt is the timestamp when this resource was discovered
@@ -47,23 +59,8 @@ type Resource struct {
 	// ID is the cloud-specific resource identifier (ARN for AWS, resource path for GCP, etc.)
 	ID string
 
-	// Name is the human-readable name of the resource
-	Name string
-
 	// Service is the application or service name that owns this resource
 	Service string
-
-	// CloudAccountID is the cloud account identifier
-	// - AWS: Account ID (e.g., "123456789012")
-	// - GCP: Project ID (e.g., "my-project-123")
-	// - Azure: Subscription ID (e.g., "12345678-1234-1234-1234-123456789012")
-	CloudAccountID string
-
-	// CloudRegion is the cloud region where the resource is deployed
-	// - AWS: Region (e.g., "us-east-1")
-	// - GCP: Region (e.g., "us-central1")
-	// - Azure: Region (e.g., "eastus")
-	CloudRegion string
 
 	// CurrentVersion is the engine or runtime version currently running
 	CurrentVersion string
@@ -117,16 +114,21 @@ type VersionLifecycle struct {
 	IsSupported bool
 }
 
-// Finding represents a detected version drift issue
+// Finding represents a detected version drift issue.
+//
+// The typed surface mirrors Resource: only fields the system itself
+// requires (identity, EOL keys, service, classification metadata) are
+// typed. Optional descriptive attributes — human-readable name, cloud
+// account, region, and any YAML-defined extras — live in Extra under
+// their YAML logical name. Wire-shape is locked by snapshot v2.
 type Finding struct {
 	// Tags are the resource's key-value metadata (e.g., AWS resource tags)
 	Tags map[string]string `json:",omitempty"`
 
-	// Extra carries any additional fields declared in the YAML
-	// inventory.field_mappings that don't correspond to a typed
-	// field on Finding. Passed through verbatim from
-	// Resource.Extra so downstream consumers (snapshots, dashboards)
-	// can read user-defined attributes without a schema change.
+	// Extra carries every non-typed value the inventory layer collected
+	// for this resource. Passed through verbatim from Resource.Extra so
+	// downstream consumers (snapshots, dashboards) can read user-defined
+	// attributes without a schema change.
 	Extra map[string]string `json:",omitempty"`
 
 	// EOLDate is when the current version reaches End-of-Life
@@ -141,17 +143,8 @@ type Finding struct {
 	// ResourceID is the cloud-specific resource identifier
 	ResourceID string
 
-	// ResourceName is the human-readable name of the resource
-	ResourceName string
-
 	// Service is the application or service name
 	Service string
-
-	// CloudAccountID is the cloud account identifier
-	CloudAccountID string
-
-	// CloudRegion is the cloud region
-	CloudRegion string
 
 	// CurrentVersion is the version currently running
 	CurrentVersion string
