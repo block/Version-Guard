@@ -284,6 +284,43 @@ func TestDetectDrift_PropagatesCloudProvider(t *testing.T) {
 	}
 }
 
+// TestDetectDrift_PropagatesExtra ensures any user-defined Extra
+// fields on a Resource flow through to the resulting Finding so
+// downstream snapshot/JSON consumers see the same map.
+func TestDetectDrift_PropagatesExtra(t *testing.T) {
+	resources := []*types.Resource{
+		{
+			ID:             "arn:aws:rds:us-east-1:123:cluster:prod-1",
+			Name:           "prod-1",
+			Type:           types.ResourceTypeAurora,
+			CloudProvider:  types.CloudProviderAWS,
+			Engine:         "aurora-mysql",
+			CurrentVersion: "5.6.10a",
+			Extra: map[string]string{
+				"owner":       "team-platform",
+				"cost_center": "engineering-prod",
+			},
+		},
+	}
+	act := newTestActivities(resources, testEOLVersions())
+	env := newActivityEnv()
+	env.RegisterActivity(act.DetectDrift)
+
+	result, err := env.ExecuteActivity(act.DetectDrift, DetectInput{
+		Resources:         resources,
+		VersionLifecycles: testEOLVersions(),
+	})
+	require.NoError(t, err)
+
+	var detect DetectResult
+	require.NoError(t, result.Get(&detect))
+	require.Len(t, detect.Findings, 1)
+
+	require.NotNil(t, detect.Findings[0].Extra)
+	assert.Equal(t, "team-platform", detect.Findings[0].Extra["owner"])
+	assert.Equal(t, "engineering-prod", detect.Findings[0].Extra["cost_center"])
+}
+
 func TestDetectDrift_UnknownVersion(t *testing.T) {
 	resources := []*types.Resource{
 		{ID: "r1", Engine: "aurora-mysql", CurrentVersion: "99.0.0", Type: types.ResourceTypeAurora},

@@ -343,6 +343,91 @@ func TestParseResourceRow(t *testing.T) {
 	assert.NotNil(t, resource.Tags)
 	assert.Equal(t, "my-service", resource.Tags["app"])
 	assert.Equal(t, "afterpay", resource.Tags["brand"])
+	// No user-defined extra fields configured → Extra is nil so it
+	// disappears from the JSON wire format via omitempty.
+	assert.Nil(t, resource.Extra)
+}
+
+// TestParseResourceRow_PopulatesExtraFields verifies that any
+// field_mappings key not in the well-known set lands verbatim in
+// Resource.Extra under its YAML logical name. This is the central
+// promise of the Extra map: new per-resource attributes are
+// configurable purely in YAML, with no Go change.
+func TestParseResourceRow_PopulatesExtraFields(t *testing.T) {
+	cfg := config.ResourceConfig{
+		ID:            "aurora-postgresql",
+		Type:          "aurora",
+		CloudProvider: "aws",
+		Inventory: config.InventoryConfig{
+			FieldMappings: map[string]string{
+				"version": "versionDetails.version",
+				"engine":  "typeFields.kind",
+				// Two extra YAML keys that don't map to typed fields.
+				"owner":       "tags.owner",
+				"cost_center": "tags.cost-center",
+			},
+		},
+	}
+
+	source := NewGenericInventorySource(&Client{}, &cfg, nil, nil)
+
+	cols := columnIndex{
+		colHeaderExternalID:      0,
+		colHeaderName:            1,
+		colHeaderAccountID:       2,
+		colHeaderRegion:          3,
+		"versionDetails.version": 4,
+		"typeFields.kind":        5,
+		colHeaderTags:            6,
+		"tags.owner":             7,
+		"tags.cost-center":       8,
+	}
+
+	row := []string{
+		"arn:aws:rds:us-west-2:123:cluster:my-cluster",
+		"my-cluster",
+		"123456789012",
+		"us-west-2",
+		"15.3",
+		"AuroraPostgreSQL",
+		"[]",
+		"team-platform",
+		"engineering-prod",
+	}
+
+	resource, err := source.parseResourceRow(context.Background(), cols, row)
+	require.NoError(t, err)
+
+	require.NotNil(t, resource.Extra)
+	assert.Equal(t, "team-platform", resource.Extra["owner"])
+	assert.Equal(t, "engineering-prod", resource.Extra["cost_center"])
+	assert.Len(t, resource.Extra, 2,
+		"only non-well-known YAML keys should land in Extra")
+}
+
+// TestGetRequiredColumns_IncludesExtraColumns confirms that user-defined
+// columns are added to the required set so the Wiz header validator
+// catches typos at parse start instead of silently producing empty
+// Extra values.
+func TestGetRequiredColumns_IncludesExtraColumns(t *testing.T) {
+	cfg := config.ResourceConfig{
+		ID:   "aurora-postgresql",
+		Type: "aurora",
+		Inventory: config.InventoryConfig{
+			FieldMappings: map[string]string{
+				"version":     "versionDetails.version",
+				"engine":      "typeFields.kind",
+				"owner":       "tags.owner",
+				"cost_center": "tags.cost-center",
+			},
+		},
+	}
+
+	source := NewGenericInventorySource(&Client{}, &cfg, nil, nil)
+	columns := source.getRequiredColumns()
+
+	assert.Contains(t, columns, "tags.owner")
+	assert.Contains(t, columns, "tags.cost-center")
 }
 
 func TestParseResourceRow_ConfigurableResourceIDColumn(t *testing.T) {

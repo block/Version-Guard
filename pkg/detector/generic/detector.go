@@ -119,6 +119,8 @@ func (d *Detector) detectResource(ctx context.Context, resource *types.Resource)
 		EOLDate:        lifecycle.EOLDate,
 		DetectedAt:     time.Now(),
 		UpdatedAt:      time.Now(),
+		Tags:           resource.Tags,
+		Extra:          resource.Extra,
 	}
 
 	return finding, nil
