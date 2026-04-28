@@ -142,16 +142,40 @@ var wellKnownFieldMappingKeys = map[string]struct{}{
 }
 
 // column returns the CSV column to use for the given field-mapping key,
-// falling back to defaultCol when the resource config does not override
+// falling back to defaultCol when the resource config does not declare
 // the mapping. This makes every well-known field driven by YAML rather
 // than hard-coded constants, so a new resource type can use a different
 // Wiz column without code changes (e.g. EKS using "providerUniqueId"
 // instead of "externalId").
+//
+// Required and optional mappings are checked together; a mapping is
+// valid wherever it lives in the YAML. The loader has already
+// rejected duplicates, so at most one of the two maps will hit.
 func (s *GenericInventorySource) column(key, defaultCol string) string {
+	if mapped, ok := s.config.Inventory.RequiredMappings[key]; ok && mapped != "" {
+		return mapped
+	}
 	if mapped, ok := s.config.Inventory.FieldMappings[key]; ok && mapped != "" {
 		return mapped
 	}
 	return defaultCol
+}
+
+// allMappings returns the union of required_mappings and field_mappings.
+// Used by code paths that need to iterate every declared mapping
+// regardless of required/optional bucket (column-validator setup, Extra
+// population). Duplicate keys are impossible — the loader rejects them.
+func (s *GenericInventorySource) allMappings() map[string]string {
+	required := s.config.Inventory.RequiredMappings
+	optional := s.config.Inventory.FieldMappings
+	merged := make(map[string]string, len(required)+len(optional))
+	for k, v := range required {
+		merged[k] = v
+	}
+	for k, v := range optional {
+		merged[k] = v
+	}
+	return merged
 }
 
 // getRequiredColumns builds the list of CSV columns the parser will read,
@@ -177,11 +201,13 @@ func (s *GenericInventorySource) getRequiredColumns() []string {
 		columns = append(columns, e)
 	}
 
-	// Every non-typed YAML field_mappings entry (name, account_id,
-	// region, owner, cost_center, ...) is required so the Wiz header
-	// validator catches typos in YAML at parse start instead of
-	// silently producing empty Extra values.
-	for key, col := range s.config.Inventory.FieldMappings {
+	// Every non-typed YAML mapping (name, account_id, region, owner,
+	// cost_center, ...) needs its CSV column in the required set so
+	// the Wiz header validator catches typos at parse start instead
+	// of silently producing empty Extra values. The required vs
+	// field bucket is irrelevant here — we just want every declared
+	// CSV column on the validator's check list.
+	for key, col := range s.allMappings() {
 		if _, isWellKnown := wellKnownFieldMappingKeys[key]; isWellKnown {
 			continue
 		}
@@ -299,12 +325,14 @@ func (s *GenericInventorySource) parseResourceRow(
 		tags = nil
 	}
 
-	// Collect every non-typed YAML field_mappings value into Extra,
-	// keyed by the YAML logical name. Empty strings still produce an
-	// entry so downstream code can distinguish "configured but missing"
-	// from "not configured at all".
+	// Collect every non-typed YAML mapping value into Extra, keyed by
+	// the YAML logical name. Empty strings still produce an entry so
+	// downstream code can distinguish "configured but missing" from
+	// "not configured at all". Both required and field mappings are
+	// candidates — required vs optional is a load-time validation
+	// concept, not a wire-shape one.
 	var extra map[string]string
-	for key, col := range s.config.Inventory.FieldMappings {
+	for key, col := range s.allMappings() {
 		if _, isWellKnown := wellKnownFieldMappingKeys[key]; isWellKnown {
 			continue
 		}

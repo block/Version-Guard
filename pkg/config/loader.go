@@ -53,7 +53,7 @@ func validateConfig(config *ResourcesConfig) error {
 		if resource.EOL.Product == "" {
 			return errors.Errorf("resource[%d]: eol.product is required", i)
 		}
-		if err := validateFieldMappings(resource); err != nil {
+		if err := validateMappings(resource); err != nil {
 			return errors.Wrapf(err, "resource[%d] %q", i, resource.ID)
 		}
 	}
@@ -61,32 +61,44 @@ func validateConfig(config *ResourcesConfig) error {
 	return nil
 }
 
-// validateFieldMappings ensures that resource_id, version, and engine
-// are present in the resource's field_mappings.
+// validateMappings enforces three rules on a resource's
+// required_mappings / field_mappings split:
 //
-// Some resource types are exempt because they don't expose a single CSV
-// column for one or more of those fields:
-//   - lambda:     version (runtime) is extracted from graphEntity.properties
-//     JSON, and engine is always "aws-lambda".
-//   - eks:        engine is hard-coded to "eks" since EKS reports don't
-//     include an engine column.
-//   - opensearch: engine is derived from the version (legacy
-//     Elasticsearch versions vs OpenSearch).
-func validateFieldMappings(resource *ResourceConfig) error {
-	required := []string{"resource_id"}
-	switch resource.Type {
-	case "lambda":
-		// version & engine derived from graphEntity.properties JSON
-	case "eks", "opensearch":
-		// engine is implicit
-		required = append(required, "version")
-	default:
-		required = append(required, "version", "engine")
+//  1. resource_id MUST appear in required_mappings — the system
+//     can't function without a primary key for each row.
+//  2. Every value in required_mappings must be non-empty. Listing a
+//     key in required_mappings is the YAML way of asserting it is
+//     mandatory; an empty string means the user forgot to fill it in.
+//  3. A key may appear in required_mappings OR field_mappings but
+//     never both. Duplicates indicate a copy-paste mistake and would
+//     hide intent from the next reader.
+//
+// What's "required" is per-resource and self-declared in YAML. We
+// no longer carry a Go-side switch on resource.Type because the
+// previous carve-outs (lambda derives version/engine implicitly from
+// graphEntity.properties; eks defaults engine to "eks"; opensearch
+// derives engine from the version) are simply expressed as different
+// required_mappings sets in the config file.
+func validateMappings(resource *ResourceConfig) error {
+	inv := &resource.Inventory
+
+	id, ok := inv.RequiredMappings["resource_id"]
+	if !ok || id == "" {
+		return errors.New("inventory.required_mappings.resource_id is required")
 	}
 
-	for _, key := range required {
-		if v := resource.Inventory.FieldMappings[key]; v == "" {
-			return errors.Errorf("inventory.field_mappings.%s is required", key)
+	for key, val := range inv.RequiredMappings {
+		if val == "" {
+			return errors.Errorf("inventory.required_mappings.%s must not be empty", key)
+		}
+	}
+
+	for key := range inv.RequiredMappings {
+		if _, dup := inv.FieldMappings[key]; dup {
+			return errors.Errorf(
+				"mapping %q appears in both inventory.required_mappings and inventory.field_mappings; pick one",
+				key,
+			)
 		}
 	}
 

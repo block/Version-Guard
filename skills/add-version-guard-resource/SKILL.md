@@ -119,34 +119,50 @@ head -2 pkg/inventory/wiz/testdata/eks.csv
 head -2 pkg/inventory/wiz/testdata/elasticache.csv
 ```
 
-**`field_mappings` keys** — every CSV column the parser reads is driven
-by `field_mappings`. The key is the *logical field*; the value is the
-Wiz CSV column name to read from.
+**Mappings are split across two YAML maps**: every CSV column the
+parser reads is driven by either `required_mappings` or
+`field_mappings`. The key is the *logical field*; the value is the
+Wiz CSV column name to read from. The split is purely for clarity —
+the parser sees the union — but lets a reader of the YAML
+immediately tell what's mandatory vs optional. The loader rejects
+any key that appears in both maps and any empty value in
+`required_mappings`.
 
-**Required keys**:
-- `resource_id` → CSV column for `Resource.ID`. Usually `"externalId"`
-  (the ARN for most AWS resources). For **EKS**, map this to
-  `"providerUniqueId"` because `externalId` is a Wiz-internal hash.
+**`required_mappings`** — every entry MUST be present and non-empty.
+Validated at config load time so YAML typos fail fast at startup
+rather than mid-scan. Each resource self-declares its required set:
+
+- `resource_id` → CSV column for `Resource.ID`. **Always required**
+  for every resource. Usually `"externalId"` (the ARN for most AWS
+  resources). For **EKS**, map this to `"providerUniqueId"` because
+  `externalId` is a Wiz-internal hash.
 - `version` → CSV column for the engine/runtime version. Usually
-  `"versionDetails.version"`.
+  `"versionDetails.version"`. Required for every resource type
+  *except* Lambda (where the runtime is extracted from
+  `graphEntity.properties`).
 - `engine` → CSV column for the engine type. Usually
-  `"typeFields.kind"` (returns values like `"Redis"`, `"AuroraMySQL"`).
+  `"typeFields.kind"`. Required for resource types where engine is
+  read straight from a column (Aurora, ElastiCache, RDS, …). Omit
+  for resources where engine is implicit:
+  - **lambda** — engine is hard-coded to `"aws-lambda"`.
+  - **eks** — engine is hard-coded to `"eks"` (no engine column in
+    EKS reports).
+  - **opensearch** — engine is derived from the version
+    (Elasticsearch ≤ 7.x vs OpenSearch).
 
-**Exemptions for the `version`/`engine` requirement**:
-- `lambda` — version (runtime) is extracted from `graphEntity.properties`
-  JSON, and engine is hard-coded to `"aws-lambda"`. Both keys can be
-  omitted.
-- `eks` — engine is hard-coded to `"eks"` (no engine column in EKS
-  reports). Omit the `engine` key.
-- `opensearch` — engine is derived from the version (Elasticsearch ≤ 7.x
-  vs OpenSearch). Omit the `engine` key.
+**`field_mappings`** — optional. Missing values produce empty strings
+on the typed `Resource` (for typed keys: `tags`) or absent entries
+in `Resource.Extra` (for non-typed keys: `name`, `account_id`,
+`region`, `owner`, `cost_center`, …). Common entries (Wiz canonical
+defaults shown in parens):
 
-**Optional keys** (Wiz canonical defaults shown in parens):
-- `name` (`"name"`) → `Resource.Name`
-- `account_id` (`"cloudAccount.externalId"`) → `Resource.CloudAccountID`
-- `region` (`"region"`) → `Resource.CloudRegion`
-- `tags` (`"tags"`) → JSON-encoded tags used for `service`/`env`
-  extraction.
+- `name` (`"name"`) → `Resource.Extra["name"]`
+- `account_id` (`"cloudAccount.externalId"`) → `Resource.Extra["account_id"]`
+- `region` (`"region"`) → `Resource.Extra["region"]`
+- `tags` (`"tags"`) → JSON-encoded tags. Typed: populates
+  `Resource.Tags` and is used for `service`/`env` extraction.
+- Anything else (e.g. `owner: "tags.owner"`) → flows verbatim into
+  `Resource.Extra` under the YAML logical name.
 
 **Always read by the parser** (not configurable):
 - `nativeType` → used to filter rows by `native_type_pattern`.
@@ -189,13 +205,14 @@ Example for OpenSearch:
     inventory:
       source: wiz
       native_type_pattern: "opensearch/Domain"
-      field_mappings:
+      required_mappings:
+        # engine is derived from the version, so it's NOT required here.
         resource_id: "externalId"
+        version: "versionDetails.version"
+      field_mappings:
         name: "name"
         account_id: "cloudAccount.externalId"
         region: "region"
-        version: "versionDetails.version"
-        # engine is derived from version (Elasticsearch <= 7.x vs OpenSearch).
         tags: "tags"
     eol:
       provider: endoflife-date

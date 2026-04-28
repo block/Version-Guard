@@ -73,14 +73,19 @@ resources:
     inventory:
       source: wiz                    # Inventory source
       native_type_pattern: "cluster" # Wiz nativeType filter (supports wildcards)
-      field_mappings:                # Map Wiz CSV columns to resource fields
+      # required_mappings: every entry MUST be present and non-empty.
+      # Validated at config load time; missing entries fail startup.
+      required_mappings:
         # For EKS, externalId is a Wiz-internal hash; providerUniqueId is the ARN.
         resource_id: "providerUniqueId"
+        version: "versionDetails.version"
+        # engine is implicit ("eks") — EKS reports have no engine column.
+      # field_mappings: optional. Typed keys (tags) populate the typed
+      # Resource; everything else lands in Resource.Extra under its YAML key.
+      field_mappings:
         name: "name"
         account_id: "cloudAccount.externalId"
         region: "region"
-        version: "versionDetails.version"
-        # engine is implicit ("eks") — EKS reports have no engine column.
         tags: "tags"
     eol:
       provider: endoflife-date       # EOL data provider
@@ -696,13 +701,14 @@ resources:
     inventory:
       source: wiz
       native_type_pattern: "rds/PostgreSQL/instance"
-      field_mappings:
+      required_mappings:
         resource_id: "externalId"
+        version: "versionDetails.version"
+        engine: "typeFields.engine"
+      field_mappings:
         name: "name"
         account_id: "cloudAccount.externalId"
         region: "region"
-        version: "versionDetails.version"
-        engine: "typeFields.engine"
         tags: "tags"
     eol:
       provider: endoflife-date
@@ -710,7 +716,9 @@ resources:
       schema: standard
 ```
 
-**Field Mappings:** Map Wiz CSV column names to resource fields.
+**Mappings:** Wiz CSV column names are split into `required_mappings`
+(must be present; validated at config load time) and `field_mappings`
+(optional; missing keys produce empty Extra entries).
 
 **Native Type Pattern:** The Wiz `nativeType` to filter (supports wildcards like `elastiCache/*/cluster`).
 
