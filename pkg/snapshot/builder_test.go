@@ -12,9 +12,9 @@ import (
 )
 
 // TestBuilder_AggregationAcrossGroupings exercises the unified
-// StatBucket aggregation: every grouping (resource type, service, brand,
-// cloud provider) plus the top-level summary should land identical
-// per-status counts, totals, and compliance percentages.
+// StatBucket aggregation: every grouping (resource type, service, cloud
+// provider) plus the top-level summary should land identical per-status
+// counts, totals, and compliance percentages.
 func TestBuilder_AggregationAcrossGroupings(t *testing.T) {
 	findings := []*types.Finding{
 		{
@@ -22,7 +22,6 @@ func TestBuilder_AggregationAcrossGroupings(t *testing.T) {
 			ResourceType:  types.ResourceTypeAurora,
 			CloudProvider: types.CloudProviderAWS,
 			Service:       "svc-a",
-			Brand:         "brand-x",
 			Status:        types.StatusGreen,
 		},
 		{
@@ -30,7 +29,6 @@ func TestBuilder_AggregationAcrossGroupings(t *testing.T) {
 			ResourceType:  types.ResourceTypeAurora,
 			CloudProvider: types.CloudProviderAWS,
 			Service:       "svc-a",
-			Brand:         "brand-x",
 			Status:        types.StatusYellow,
 		},
 		{
@@ -38,7 +36,6 @@ func TestBuilder_AggregationAcrossGroupings(t *testing.T) {
 			ResourceType:  types.ResourceTypeAurora,
 			CloudProvider: types.CloudProviderAWS,
 			Service:       "svc-b",
-			Brand:         "brand-y",
 			Status:        types.StatusRed,
 		},
 		{
@@ -46,7 +43,6 @@ func TestBuilder_AggregationAcrossGroupings(t *testing.T) {
 			ResourceType:  types.ResourceTypeAurora,
 			CloudProvider: types.CloudProviderAWS,
 			Service:       "", // no service => not counted in ByService
-			Brand:         "", // no brand   => not counted in ByBrand
 			Status:        types.StatusUnknown,
 		},
 	}
@@ -85,11 +81,6 @@ func TestBuilder_AggregationAcrossGroupings(t *testing.T) {
 	assert.Equal(t, 1, s.ByService["svc-b"].RedCount)
 	assert.InDelta(t, 0.0, s.ByService["svc-b"].CompliancePercentage, 0.001)
 
-	// ByBrand — empty-brand finding is excluded.
-	require.Len(t, s.ByBrand, 2)
-	assert.Equal(t, 2, s.ByBrand["brand-x"].TotalResources)
-	assert.Equal(t, 1, s.ByBrand["brand-y"].TotalResources)
-
 	// ByCloudProvider — every finding contributes.
 	require.Len(t, s.ByCloudProvider, 1)
 	cp := s.ByCloudProvider[types.CloudProviderAWS]
@@ -102,8 +93,9 @@ func TestBuilder_AggregationAcrossGroupings(t *testing.T) {
 }
 
 // TestBuilder_JSONWireShape locks in the JSON keys produced for the
-// snapshot summary so the StatBucket unification cannot silently change
-// the wire format consumed by downstream tools.
+// snapshot summary so future refactors cannot silently change the wire
+// format consumed by downstream tools. Asserts that the dropped
+// `by_brand` key is no longer present.
 func TestBuilder_JSONWireShape(t *testing.T) {
 	snap := NewBuilder().
 		AddFindings(types.ResourceTypeAurora, []*types.Finding{
@@ -112,7 +104,6 @@ func TestBuilder_JSONWireShape(t *testing.T) {
 				ResourceType:  types.ResourceTypeAurora,
 				CloudProvider: types.CloudProviderAWS,
 				Service:       "svc",
-				Brand:         "brand",
 				Status:        types.StatusGreen,
 			},
 		}).
@@ -127,11 +118,16 @@ func TestBuilder_JSONWireShape(t *testing.T) {
 	for _, key := range []string{
 		"total_resources", "red_count", "yellow_count", "green_count",
 		"unknown_count", "compliance_percentage",
-		"by_resource_type", "by_service", "by_brand", "by_cloud_provider",
+		"by_resource_type", "by_service", "by_cloud_provider",
 	} {
 		_, ok := decoded[key]
 		assert.True(t, ok, "summary missing top-level key %q", key)
 	}
+
+	// by_brand was dropped along with brand metadata; make sure it
+	// doesn't sneak back in.
+	_, hasBrand := decoded["by_brand"]
+	assert.False(t, hasBrand, "summary should no longer contain by_brand")
 
 	// Verify a nested bucket also has the canonical keys.
 	byService, ok := decoded["by_service"].(map[string]any)

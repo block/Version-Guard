@@ -148,23 +148,23 @@ func TestStore_ListFindings_MultipleFilters(t *testing.T) {
 	s := NewStore()
 
 	findings := []*types.Finding{
-		{ResourceID: "1", Status: types.StatusRed, Service: "payments", Brand: "brand-a"},
-		{ResourceID: "2", Status: types.StatusGreen, Service: "payments", Brand: "brand-a"},
-		{ResourceID: "3", Status: types.StatusRed, Service: "billing", Brand: "brand-b"},
-		{ResourceID: "4", Status: types.StatusRed, Service: "payments", Brand: "brand-b"},
+		{ResourceID: "1", Status: types.StatusRed, Service: "payments", Engine: "aurora-mysql"},
+		{ResourceID: "2", Status: types.StatusGreen, Service: "payments", Engine: "aurora-mysql"},
+		{ResourceID: "3", Status: types.StatusRed, Service: "billing", Engine: "aurora-postgresql"},
+		{ResourceID: "4", Status: types.StatusRed, Service: "payments", Engine: "aurora-postgresql"},
 	}
 
 	err := s.SaveFindings(ctx, findings)
 	require.NoError(t, err)
 
-	// Filter by status AND service AND brand
+	// Filter by status AND service AND engine
 	statusRed := types.StatusRed
 	service := "payments"
-	brand := "brand-a"
+	engine := "aurora-mysql"
 	results, err := s.ListFindings(ctx, store.FindingFilters{
 		Status:  &statusRed,
 		Service: &service,
-		Brand:   &brand,
+		Engine:  &engine,
 	})
 	require.NoError(t, err)
 	assert.Len(t, results, 1)

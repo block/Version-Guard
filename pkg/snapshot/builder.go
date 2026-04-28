@@ -24,7 +24,6 @@ func NewBuilder() *Builder {
 			Summary: types.SnapshotSummary{
 				ByResourceType:  make(map[types.ResourceType]*types.StatBucket),
 				ByService:       make(map[string]*types.StatBucket),
-				ByBrand:         make(map[string]*types.StatBucket),
 				ByCloudProvider: make(map[types.CloudProvider]*types.StatBucket),
 			},
 		},
@@ -73,12 +72,6 @@ func (b *Builder) calculateStatistics() {
 				incrementStatusCount(bucket, finding.Status)
 			}
 
-			// Brand stats
-			if finding.Brand != "" {
-				bucket := getOrCreate(summary.ByBrand, finding.Brand)
-				incrementStatusCount(bucket, finding.Status)
-			}
-
 			// Cloud provider stats
 			bucket := getOrCreate(summary.ByCloudProvider, finding.CloudProvider)
 			incrementStatusCount(bucket, finding.Status)
@@ -97,9 +90,6 @@ func (b *Builder) calculateStatistics() {
 	for _, bucket := range summary.ByService {
 		bucket.CompliancePercentage = compliancePercentage(bucket)
 	}
-	for _, bucket := range summary.ByBrand {
-		bucket.CompliancePercentage = compliancePercentage(bucket)
-	}
 	for _, bucket := range summary.ByCloudProvider {
 		bucket.CompliancePercentage = compliancePercentage(bucket)
 	}
@@ -108,7 +98,7 @@ func (b *Builder) calculateStatistics() {
 // getOrCreate returns the StatBucket stored under key, lazily inserting
 // a fresh one (and bumping TotalResources) on the first observation.
 // The map type is parameterised so it works for ByService (string keys),
-// ByBrand (string keys), ByResourceType, and ByCloudProvider alike.
+// ByResourceType, and ByCloudProvider alike.
 func getOrCreate[K comparable](m map[K]*types.StatBucket, key K) *types.StatBucket {
 	bucket, ok := m[key]
 	if !ok {

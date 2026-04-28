@@ -72,9 +72,8 @@ type ServerCLI struct {
 	HTTPPort int `help:"HTTP admin port (POST /scan)" default:"8081" env:"HTTP_PORT"`
 
 	// Tag configuration (comma-separated lists for AWS resource tags)
-	TagAppKeys   string `help:"Comma-separated tag keys for application/service name" default:"app,application,service" env:"TAG_APP_KEYS"`
-	TagEnvKeys   string `help:"Comma-separated tag keys for environment" default:"environment,env" env:"TAG_ENV_KEYS"`
-	TagBrandKeys string `help:"Comma-separated tag keys for brand/business unit" default:"brand" env:"TAG_BRAND_KEYS"`
+	TagAppKeys string `help:"Comma-separated tag keys for application/service name" default:"app,application,service" env:"TAG_APP_KEYS"`
+	TagEnvKeys string `help:"Comma-separated tag keys for environment" default:"environment,env" env:"TAG_ENV_KEYS"`
 
 	// Schedule configuration
 	ScheduleEnabled bool   `help:"Enable scheduled scanning" default:"false" env:"SCHEDULE_ENABLED"`
@@ -109,9 +108,8 @@ func parseTagKeys(input string) []string {
 // buildTagConfig creates a TagConfig from the environment variables
 func (s *ServerCLI) buildTagConfig() *wiz.TagConfig {
 	return &wiz.TagConfig{
-		AppTags:   parseTagKeys(s.TagAppKeys),
-		EnvTags:   parseTagKeys(s.TagEnvKeys),
-		BrandTags: parseTagKeys(s.TagBrandKeys),
+		AppTags: parseTagKeys(s.TagAppKeys),
+		EnvTags: parseTagKeys(s.TagEnvKeys),
 	}
 }
 
@@ -141,7 +139,6 @@ func (s *ServerCLI) Run(_ *kong.Context) error {
 		fmt.Printf("  S3 Prefix: %s\n", s.S3Prefix)
 		fmt.Printf("  Tag Keys - App: %s\n", s.TagAppKeys)
 		fmt.Printf("  Tag Keys - Env: %s\n", s.TagEnvKeys)
-		fmt.Printf("  Tag Keys - Brand: %s\n", s.TagBrandKeys)
 		if s.ScheduleEnabled {
 			fmt.Printf("  Schedule: enabled (cron: %s, id: %s, jitter: %s)\n",
 				s.ScheduleCron, s.ScheduleID, s.ScheduleJitter)
@@ -210,7 +207,6 @@ func (s *ServerCLI) Run(_ *kong.Context) error {
 		fmt.Printf("\n✓ Tag configuration loaded:\n")
 		fmt.Printf("  App tags: %v\n", tagConfig.AppTags)
 		fmt.Printf("  Env tags: %v\n", tagConfig.EnvTags)
-		fmt.Printf("  Brand tags: %v\n", tagConfig.BrandTags)
 	}
 
 	// Initialize Wiz client if credentials provided

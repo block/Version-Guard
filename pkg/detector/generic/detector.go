@@ -111,7 +111,6 @@ func (d *Detector) detectResource(ctx context.Context, resource *types.Resource)
 		CloudAccountID: resource.CloudAccountID,
 		CloudRegion:    resource.CloudRegion,
 		CloudProvider:  resource.CloudProvider,
-		Brand:          resource.Brand,
 		CurrentVersion: resource.CurrentVersion,
 		Engine:         resource.Engine,
 		Status:         status,

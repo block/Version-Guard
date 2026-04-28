@@ -187,7 +187,6 @@ func TestDetect_SingleResourceGreen(t *testing.T) {
 		CurrentVersion: "16.1",
 		Engine:         "aurora-postgresql",
 		Service:        "test-service",
-		Brand:          "test-brand",
 	}
 
 	futureDate := time.Now().AddDate(2, 0, 0)
@@ -241,7 +240,6 @@ func TestDetect_SingleResourceGreen(t *testing.T) {
 	assert.Equal(t, testResource.CloudAccountID, finding.CloudAccountID)
 	assert.Equal(t, testResource.CloudRegion, finding.CloudRegion)
 	assert.Equal(t, testResource.CloudProvider, finding.CloudProvider)
-	assert.Equal(t, testResource.Brand, finding.Brand)
 	assert.Equal(t, testResource.CurrentVersion, finding.CurrentVersion)
 	assert.Equal(t, testResource.Engine, finding.Engine)
 	assert.Equal(t, types.StatusGreen, finding.Status)

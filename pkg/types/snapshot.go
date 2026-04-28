@@ -29,15 +29,13 @@ type SnapshotSummary struct {
 	CompliancePercentage float64                       `json:"compliance_percentage"`
 	ByResourceType       map[ResourceType]*StatBucket  `json:"by_resource_type"`
 	ByService            map[string]*StatBucket        `json:"by_service"`
-	ByBrand              map[string]*StatBucket        `json:"by_brand"`
 	ByCloudProvider      map[CloudProvider]*StatBucket `json:"by_cloud_provider"`
 }
 
 // StatBucket holds aggregate counts and the derived compliance
-// percentage for an arbitrary grouping (resource type, service, brand,
-// cloud provider, ...). Every group rolls up the same shape, so a single
-// type covers all of them. The wire format is unchanged from the
-// previous per-group structs.
+// percentage for an arbitrary grouping (resource type, service, cloud
+// provider, ...). Every group rolls up the same shape, so a single type
+// covers all of them.
 type StatBucket struct {
 	TotalResources       int     `json:"total_resources"`
 	RedCount             int     `json:"red_count"`
