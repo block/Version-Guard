@@ -26,6 +26,12 @@
         account_id: "cloudAccount.externalId"
         region: "region"
         tags: "tags"
+    transforms:
+      # EKS reports have no engine column at all; default the empty
+      # value to the engine name endoflife.date keys cycles by.
+      # See TRANSFORMS.md for the full operation reference.
+      engine:
+        default_if_empty: "eks"
     eol:
       provider: endoflife-date
       product: amazon-eks

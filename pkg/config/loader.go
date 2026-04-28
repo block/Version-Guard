@@ -83,6 +83,9 @@ func validateConfig(config *ResourcesConfig) error {
 		if err := validateMappings(resource); err != nil {
 			return errors.Wrapf(err, "resource[%d] %q", i, resource.ID)
 		}
+		if err := resource.Transforms.validate(); err != nil {
+			return errors.Wrapf(err, "resource[%d] %q", i, resource.ID)
+		}
 	}
 
 	return nil

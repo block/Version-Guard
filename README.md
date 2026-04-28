@@ -114,7 +114,7 @@ Version Guard uses a **config-driven approach** - resources are defined in `pkg/
 2. Adding ~15 lines to `pkg/config/defaults/resources.yaml`
 3. Adding the report ID to `WIZ_REPORT_IDS` environment variable
 
-**No code changes needed!** See [USAGE.md](./USAGE.md) for details.
+**No code changes needed** for any resource whose inventory shape matches one of the existing patterns. If the resource needs version/engine reshaping (extracting a value from a JSON column, normalizing engine names, deriving the engine from the version, …) declare it via the YAML transforms DSL — see [TRANSFORMS.md](./TRANSFORMS.md). See [USAGE.md](./USAGE.md) for the broader workflow.
 
 ## 🚀 Quick Start
 
@@ -327,7 +327,7 @@ Version Guard ships with a canonical `resources.yaml` embedded into the binary a
 CONFIG_PATH=/etc/version-guard/my-resources.yaml ./version-guard
 ```
 
-Use `pkg/config/defaults/resources.yaml` as a starting template — copy it, edit, and bind-mount the file into your container.
+Use `pkg/config/defaults/resources.yaml` as a starting template — copy it, edit, and bind-mount the file into your container. For per-resource version/engine reshaping (JSON extraction, prefix stripping, engine normalization, version-derived engine), see the dedicated [TRANSFORMS.md](./TRANSFORMS.md) — it covers the whole DSL, when to use each operation, and when not to use a transform at all.
 
 **Scheduled Scanning:**
 

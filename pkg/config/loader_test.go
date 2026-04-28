@@ -447,6 +447,109 @@ func TestValidateConfig_Mappings(t *testing.T) {
 	}
 }
 
+// TestValidateConfig_Transforms exercises the at-most-one-op-per-field
+// invariant of the transforms DSL. The loader catches copy-paste
+// mistakes that would otherwise resolve to a silent precedence at
+// runtime — keeping the YAML readable: one field, one op.
+func TestValidateConfig_Transforms(t *testing.T) {
+	base := func(transforms TransformsConfig) *ResourcesConfig {
+		return &ResourcesConfig{
+			Version: "v1",
+			Resources: []ResourceConfig{
+				{
+					ID:            "lambda",
+					Type:          "lambda",
+					CloudProvider: "aws",
+					Inventory: InventoryConfig{
+						Source: "wiz",
+						RequiredMappings: map[string]string{
+							"resource_id": "externalId",
+						},
+					},
+					EOL: EOLConfig{
+						Provider: "endoflife-date",
+						Product:  "aws-lambda",
+					},
+					Transforms: transforms,
+				},
+			},
+		}
+	}
+
+	t.Run("two version ops at once is rejected", func(t *testing.T) {
+		err := validateConfig(base(TransformsConfig{
+			Version: &VersionTransform{
+				StripPrefixes: []string{"foo"},
+				ExtractJSONField: &ExtractJSONFieldOp{
+					FromColumn: "x", Field: "y",
+				},
+			},
+		}))
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "set at most one of strip_prefixes, extract_json_field")
+	})
+
+	t.Run("two engine ops at once is rejected", func(t *testing.T) {
+		err := validateConfig(base(TransformsConfig{
+			Engine: &EngineTransform{
+				Constant: "aws-lambda",
+				SubstringLookup: []SubstringLookupRule{
+					{Contains: []string{"a"}, Result: "b"},
+				},
+			},
+		}))
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "set at most one of constant, default_if_empty, substring_lookup, from_version_major")
+	})
+
+	t.Run("extract_json_field requires both from_column and field", func(t *testing.T) {
+		err := validateConfig(base(TransformsConfig{
+			Version: &VersionTransform{
+				ExtractJSONField: &ExtractJSONFieldOp{FromColumn: "x"},
+			},
+		}))
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "extract_json_field.field is required")
+	})
+
+	t.Run("substring_lookup rejects empty contains", func(t *testing.T) {
+		err := validateConfig(base(TransformsConfig{
+			Engine: &EngineTransform{
+				SubstringLookup: []SubstringLookupRule{
+					{Contains: nil, Result: "x"},
+				},
+			},
+		}))
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "contains must not be empty")
+	})
+
+	t.Run("from_version_major requires default", func(t *testing.T) {
+		err := validateConfig(base(TransformsConfig{
+			Engine: &EngineTransform{
+				FromVersionMajor: &FromVersionMajorOp{
+					Majors: map[string]string{"5": "elasticsearch"},
+				},
+			},
+		}))
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "from_version_major.default is required")
+	})
+
+	t.Run("valid lambda-style config passes", func(t *testing.T) {
+		err := validateConfig(base(TransformsConfig{
+			Version: &VersionTransform{
+				ExtractJSONField: &ExtractJSONFieldOp{
+					FromColumn: "graphEntity.properties",
+					Field:      "runtime",
+				},
+			},
+			Engine: &EngineTransform{Constant: "aws-lambda"},
+		}))
+		assert.NoError(t, err)
+	})
+}
+
 func TestValidateConfig_MissingEOLProduct(t *testing.T) {
 	cfg := &ResourcesConfig{
 		Version: "v1",

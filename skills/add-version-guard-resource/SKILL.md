@@ -143,11 +143,12 @@ rather than mid-scan. Each resource self-declares its required set:
 - `engine` → CSV column for the engine type. Usually
   `"typeFields.kind"`. Required for resource types where engine is
   read straight from a column (Aurora, ElastiCache, RDS, …). Omit
-  for resources where engine is implicit:
-  - **lambda** — engine is hard-coded to `"aws-lambda"`.
-  - **eks** — engine is hard-coded to `"eks"` (no engine column in
-    EKS reports).
-  - **opensearch** — engine is derived from the version
+  for resources where engine is **implicit** and produced by a
+  transform (see Step 5):
+  - **lambda** — `transforms.engine.constant: "aws-lambda"`.
+  - **eks** — `transforms.engine.default_if_empty: "eks"` (no
+    engine column in EKS reports).
+  - **opensearch** — `transforms.engine.from_version_major: …`
     (Elasticsearch ≤ 7.x vs OpenSearch).
 
 **`field_mappings`** — optional. Missing values produce empty strings
@@ -166,7 +167,10 @@ defaults shown in parens):
 
 **Always read by the parser** (not configurable):
 - `nativeType` → used to filter rows by `native_type_pattern`.
-- `graphEntity.properties` → required for `type: lambda` runtime extraction.
+
+Any column referenced by `transforms.version.extract_json_field.from_column`
+(e.g. `graphEntity.properties` for Lambda) is automatically added to
+the required-columns list — you don't need to declare it separately.
 
 **Identify the native_type_pattern**:
 - Aurora: `"rds/AmazonAurora*/cluster"`
@@ -192,11 +196,40 @@ Use similar patterns for new resources.
 
 ---
 
-### Step 5: Generate YAML Config
+### Step 5: Decide if a transform is needed
+
+If the raw column values for `version` and `engine` aren't already
+the canonical strings endoflife.date expects, declare a `transforms`
+block. The DSL is intentionally narrow — see [TRANSFORMS.md](../../TRANSFORMS.md)
+for the full operation reference, anti-patterns, and examples. Quick
+chooser:
+
+| Need to … | Use |
+|---|---|
+| Strip a fixed engine prefix from version (e.g. `OpenSearch_2.13` → `2.13`) | `transforms.version.strip_prefixes` |
+| Read version (e.g. runtime) from a JSON column | `transforms.version.extract_json_field` (set `skip_if_empty: true` to drop rows with no value) |
+| Force engine to a constant for every row | `transforms.engine.constant` |
+| Default engine to a constant when the column is empty / unmapped | `transforms.engine.default_if_empty` |
+| Canonicalize a free-form engine column value | `transforms.engine.substring_lookup` |
+| Pick engine based on the version's major (legacy/modern split) | `transforms.engine.from_version_major` |
+| The raw column already matches | _no transforms block; baseline lowercases+trims engine_ |
+
+**At most one operation per field** is allowed. The loader rejects
+multiple sibling ops at startup. Don't include rules that can't
+fire (a `mysql` substring rule on the postgres resource is dead).
+
+If your case doesn't fit any existing op, **don't try to compose
+existing ops or sneak conditionals into YAML**. Add a new named op
+to `pkg/config/transforms.go` instead — see the "Adding a new
+operation" section in TRANSFORMS.md.
+
+---
+
+### Step 6: Generate YAML Config
 
 **Generate config entry** and append to `pkg/config/defaults/resources.yaml`:
 
-Example for OpenSearch:
+Example for OpenSearch (uses both a version transform and an engine transform):
 
 ```yaml
   - id: opensearch
@@ -206,7 +239,8 @@ Example for OpenSearch:
       source: wiz
       native_type_pattern: "opensearch/Domain"
       required_mappings:
-        # engine is derived from the version, so it's NOT required here.
+        # engine is produced by transforms.engine.from_version_major,
+        # so it's NOT required here.
         resource_id: "externalId"
         version: "versionDetails.version"
       field_mappings:
@@ -214,6 +248,16 @@ Example for OpenSearch:
         account_id: "cloudAccount.externalId"
         region: "region"
         tags: "tags"
+    transforms:
+      version:
+        strip_prefixes: ["OpenSearch_", "Elasticsearch_"]
+      engine:
+        from_version_major:
+          majors:
+            "5": "elasticsearch"
+            "6": "elasticsearch"
+            "7": "elasticsearch"
+          default: "opensearch"
     eol:
       provider: endoflife-date
       product: amazon-opensearch
@@ -224,6 +268,7 @@ Example for OpenSearch:
 - Resource `id` is the key in `WIZ_REPORT_IDS` environment variable
 - Append as new entry, don't overwrite existing resources
 - Use `schema: standard` unless resource has non-standard semantics (like EKS)
+- Transforms are optional — omit the block entirely when the raw column values are already canonical
 
 **Examples**: Load specific example files when:
 - `examples/elasticache.yaml` - Adding cache/Redis/Valkey resources with wildcard native_type_patterns
@@ -232,7 +277,7 @@ Example for OpenSearch:
 
 ---
 
-### Step 6: Run Tests
+### Step 7: Run Tests
 
 Run tests to verify the config is valid:
 
@@ -256,7 +301,7 @@ make test
 
 ---
 
-### Step 7: Create Commit
+### Step 8: Create Commit
 
 Create a properly formatted commit:
 

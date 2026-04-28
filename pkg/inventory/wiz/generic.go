@@ -15,12 +15,6 @@ import (
 	"github.com/block/Version-Guard/pkg/types"
 )
 
-const (
-	resourceTypeEKS        = "eks"
-	resourceTypeOpenSearch = "opensearch"
-	resourceTypeLambda     = "lambda"
-)
-
 // contextKey is a custom type for context keys to avoid collisions
 type contextKey string
 
@@ -216,9 +210,12 @@ func (s *GenericInventorySource) getRequiredColumns() []string {
 		}
 	}
 
-	// Lambda needs graphEntity.properties for runtime extraction
-	if s.config.Type == resourceTypeLambda {
-		columns = append(columns, colHeaderGraphProperties)
+	// If a version transform extracts a JSON field from a column,
+	// that column must be in the required set so the header
+	// validator catches typos at parse start. Derived from YAML
+	// instead of hardcoded for Lambda.
+	if vt := s.config.Transforms.Version; vt != nil && vt.ExtractJSONField != nil && vt.ExtractJSONField.FromColumn != "" {
+		columns = append(columns, vt.ExtractJSONField.FromColumn)
 	}
 
 	return columns
@@ -279,41 +276,24 @@ func (s *GenericInventorySource) parseResourceRow(
 		return nil, err
 	}
 
-	version := cols.col(row, s.column("version", ""))
-	engine := cols.col(row, s.column("engine", ""))
+	rawVersion := cols.col(row, s.column("version", ""))
+	rawEngine := cols.col(row, s.column("engine", ""))
 
-	// Lambda-specific: extract runtime from graphEntity.properties JSON.
-	// The runtime string (e.g., "python3.12", "nodejs20.x") is the cycle
-	// identifier on endoflife.date's aws-lambda product, so it becomes the
-	// version. The engine is always "aws-lambda".
-	//
-	// Container-image Lambdas have runtime=null in Wiz because the runtime
-	// is baked into the Docker image, not managed by AWS. Since AWS doesn't
-	// EOL container-image Lambdas (there's no runtime deprecation date),
-	// they're out of scope — skip them to avoid noise in findings.
-	if s.config.Type == resourceTypeLambda {
-		propsJSON := cols.col(row, colHeaderGraphProperties)
-		runtime := extractLambdaRuntime(propsJSON)
-		if runtime == "" {
-			return nil, nil
-		}
-		version = runtime
-		engine = "aws-lambda"
+	// Apply YAML-declared transforms. The carve-outs that used to
+	// live as `if s.config.Type == "lambda"` etc. are now expressed
+	// as named operations in resources.yaml; see pkg/config/transforms.go.
+	// Order matters: version is computed first because the engine
+	// transform's from_version_major op depends on the post-transform
+	// version (OpenSearch's Elasticsearch-vs-OpenSearch detection).
+	version, skip := applyVersionTransform(
+		rawVersion,
+		s.config.Transforms.Version,
+		func(name string) string { return cols.col(row, name) },
+	)
+	if skip {
+		return nil, nil
 	}
-
-	// For EKS, default to "eks" if no engine field is mapped
-	if s.config.Type == resourceTypeEKS && engine == "" {
-		engine = resourceTypeEKS
-	}
-
-	// Normalize engine
-	engine = normalizeEngine(engine, s.config.Type)
-
-	// OpenSearch-specific: normalize version and detect legacy Elasticsearch
-	if s.config.Type == resourceTypeOpenSearch {
-		version = normalizeOpenSearchVersion(version)
-		engine = detectOpenSearchEngine(version)
-	}
+	engine := applyEngineTransform(rawEngine, version, s.config.Transforms.Engine)
 
 	// Parse tags to extract service
 	tagsJSON := cols.col(row, s.column("tags", colHeaderTags))
@@ -396,82 +376,4 @@ func getReportIDFromMap(resourceID string) (string, error) {
 	}
 
 	return reportID, nil
-}
-
-// normalizeOpenSearchVersion strips engine prefixes from OpenSearch/Elasticsearch
-// version strings (e.g., "OpenSearch_2.13" → "2.13", "Elasticsearch_7.10" → "7.10").
-func normalizeOpenSearchVersion(version string) string {
-	version = strings.TrimPrefix(version, "OpenSearch_")
-	version = strings.TrimPrefix(version, "Elasticsearch_")
-	return version
-}
-
-// detectOpenSearchEngine returns "elasticsearch" for legacy Elasticsearch versions
-// (5.x, 6.x, 7.x) and "opensearch" for OpenSearch versions (1.x, 2.x, 3.x+).
-// OpenSearch forked from Elasticsearch 7.10, so versions ≤7.x are Elasticsearch.
-func detectOpenSearchEngine(version string) string {
-	if version == "" {
-		return resourceTypeOpenSearch
-	}
-	major := strings.SplitN(version, ".", 2)[0]
-	switch major {
-	case "5", "6", "7":
-		return "elasticsearch"
-	default:
-		return resourceTypeOpenSearch
-	}
-}
-
-// extractLambdaRuntime extracts the runtime identifier from the
-// graphEntity.properties JSON column of a Wiz Lambda report row.
-// The JSON contains a "runtime" field with values like "python3.12",
-// "nodejs20.x", "java21", "provided.al2023", etc.
-// Returns "" if the JSON is empty, unparseable, or has no runtime field.
-func extractLambdaRuntime(propsJSON string) string {
-	propsJSON = strings.TrimSpace(propsJSON)
-	if propsJSON == "" {
-		return ""
-	}
-
-	var props map[string]interface{}
-	if err := json.Unmarshal([]byte(propsJSON), &props); err != nil {
-		return ""
-	}
-
-	runtime, ok := props["runtime"].(string)
-	if !ok {
-		return ""
-	}
-
-	return strings.TrimSpace(runtime)
-}
-
-// normalizeEngine normalizes engine names based on resource type
-func normalizeEngine(engine, resourceType string) string {
-	engine = strings.ToLower(strings.TrimSpace(engine))
-
-	// Handle type-specific normalization
-	switch resourceType {
-	case "aurora":
-		// AuroraMySQL → aurora-mysql
-		// AuroraPostgreSQL → aurora-postgresql
-		if strings.Contains(engine, "aurora") {
-			if strings.Contains(engine, "mysql") {
-				return "aurora-mysql"
-			}
-			if strings.Contains(engine, "postgres") {
-				return "aurora-postgresql"
-			}
-		}
-	case "elasticache":
-		// Redis → redis, Valkey → valkey, Memcached → memcached
-		return engine
-	case resourceTypeEKS:
-		// Kubernetes → eks
-		if strings.Contains(engine, "k8s") || strings.Contains(engine, "kubernetes") {
-			return resourceTypeEKS
-		}
-	}
-
-	return engine
 }
