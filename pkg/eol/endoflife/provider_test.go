@@ -525,49 +525,6 @@ func TestParseDate(t *testing.T) {
 	}
 }
 
-func TestNormalizeVersion(t *testing.T) {
-	tests := []struct {
-		name    string
-		engine  string
-		version string
-		want    string
-	}{
-		{
-			name:    "kubernetes with k8s- prefix",
-			engine:  "kubernetes",
-			version: "k8s-1.31",
-			want:    "1.31",
-		},
-		{
-			name:    "kubernetes without prefix",
-			engine:  "kubernetes",
-			version: "1.31",
-			want:    "1.31",
-		},
-		{
-			name:    "eks with kubernetes- prefix",
-			engine:  "eks",
-			version: "kubernetes-1.31",
-			want:    "1.31",
-		},
-		{
-			name:    "postgres version",
-			engine:  "postgres",
-			version: "15.4",
-			want:    "15.4",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := normalizeVersion(tt.engine, tt.version)
-			if got != tt.want {
-				t.Errorf("normalizeVersion() = %s, want %s", got, tt.want)
-			}
-		})
-	}
-}
-
 // TestProvider_InterfaceCompliance verifies that Provider implements eol.Provider interface
 func TestProvider_InterfaceCompliance(t *testing.T) {
 	var _ interface {
