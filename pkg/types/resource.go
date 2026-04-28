@@ -34,6 +34,13 @@ type Resource struct {
 	// Tags are key-value pairs associated with the resource
 	Tags map[string]string
 
+	// Extra carries any additional fields declared in the YAML
+	// inventory.field_mappings that don't correspond to a typed
+	// field on Resource. The map key is the YAML logical name
+	// (e.g. "owner", "cost_center") and the value is the raw CSV
+	// cell. nil when the resource config defines no extra fields.
+	Extra map[string]string `json:",omitempty"`
+
 	// DiscoveredAt is the timestamp when this resource was discovered
 	DiscoveredAt time.Time
 
@@ -114,6 +121,13 @@ type VersionLifecycle struct {
 type Finding struct {
 	// Tags are the resource's key-value metadata (e.g., AWS resource tags)
 	Tags map[string]string `json:",omitempty"`
+
+	// Extra carries any additional fields declared in the YAML
+	// inventory.field_mappings that don't correspond to a typed
+	// field on Finding. Passed through verbatim from
+	// Resource.Extra so downstream consumers (snapshots, dashboards)
+	// can read user-defined attributes without a schema change.
+	Extra map[string]string `json:",omitempty"`
 
 	// EOLDate is when the current version reaches End-of-Life
 	EOLDate *time.Time

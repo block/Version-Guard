@@ -127,6 +127,20 @@ func (s *GenericInventorySource) GetResource(ctx context.Context, resourceType t
 	return nil, errors.Errorf("resource not found: %s", id)
 }
 
+// wellKnownFieldMappingKeys are the YAML field_mappings keys whose
+// values flow into typed fields on Resource. Anything not in this set
+// is routed verbatim into Resource.Extra so users can declare custom
+// per-resource attributes purely in YAML.
+var wellKnownFieldMappingKeys = map[string]struct{}{
+	"resource_id": {},
+	"name":        {},
+	"account_id":  {},
+	"region":      {},
+	"version":     {},
+	"engine":      {},
+	"tags":        {},
+}
+
 // column returns the CSV column to use for the given field-mapping key,
 // falling back to defaultCol when the resource config does not override
 // the mapping. This makes every well-known field driven by YAML rather
@@ -163,6 +177,18 @@ func (s *GenericInventorySource) getRequiredColumns() []string {
 	// Add engine if mapped
 	if e := s.column("engine", ""); e != "" {
 		columns = append(columns, e)
+	}
+
+	// Add any user-defined extra columns so the header validator
+	// catches typos in YAML at parse start instead of silently
+	// producing empty Extra values.
+	for key, col := range s.config.Inventory.FieldMappings {
+		if _, isWellKnown := wellKnownFieldMappingKeys[key]; isWellKnown {
+			continue
+		}
+		if col != "" {
+			columns = append(columns, col)
+		}
 	}
 
 	// Lambda needs graphEntity.properties for runtime extraction
@@ -290,6 +316,25 @@ func (s *GenericInventorySource) parseResourceRow(
 		service = extractServiceFromName(name)
 	}
 
+	// Collect any user-defined extra fields. Each non-well-known YAML
+	// field_mappings key produces an entry in Resource.Extra keyed by
+	// the YAML logical name. Empty strings still produce an entry so
+	// downstream code can distinguish "configured but missing" from
+	// "not configured at all".
+	var extra map[string]string
+	for key, col := range s.config.Inventory.FieldMappings {
+		if _, isWellKnown := wellKnownFieldMappingKeys[key]; isWellKnown {
+			continue
+		}
+		if col == "" {
+			continue
+		}
+		if extra == nil {
+			extra = make(map[string]string)
+		}
+		extra[key] = cols.col(row, col)
+	}
+
 	// Build resource
 	discoveredAt := time.Now()
 	if ctxTime, ok := ctx.Value(discoveredAtKey).(time.Time); ok {
@@ -307,6 +352,7 @@ func (s *GenericInventorySource) parseResourceRow(
 		Engine:         engine,
 		Service:        service,
 		Tags:           tags,
+		Extra:          extra,
 		DiscoveredAt:   discoveredAt,
 	}
 
