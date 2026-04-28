@@ -14,7 +14,7 @@ This skill requires Version Guard's generic config-driven architecture to be imp
 cd ~/Version-Guard
 
 # Verify config schema exists
-test -f config/resources.yaml && echo "✅ Config schema exists" || echo "❌ Config schema missing"
+test -f pkg/config/defaults/resources.yaml && echo "✅ Config schema exists" || echo "❌ Config schema missing"
 
 # Verify loader exists
 test -f pkg/config/loader.go && echo "✅ Config loader exists" || echo "❌ Config loader missing"
@@ -125,7 +125,7 @@ Run all prerequisite checks:
 cd ~/Version-Guard
 
 # Check infrastructure
-test -f config/resources.yaml && \
+test -f pkg/config/defaults/resources.yaml && \
 test -f pkg/config/loader.go && \
 test -f pkg/detector/generic/detector.go && \
 test -f pkg/inventory/wiz/generic.go && \

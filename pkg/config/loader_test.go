@@ -119,6 +119,72 @@ resources:
 	assert.Equal(t, "eks_adapter", cfg.Resources[1].EOL.Schema)
 }
 
+// TestLoadResourcesConfig_EmbeddedDefault asserts the binary works
+// out of the box: an empty path falls back to the canonical YAML
+// embedded into pkg/config/defaults at build time. We don't pin the
+// exact resource set (that's what `config/resources.yaml` content
+// tests would do); we just assert that the embedded payload exists,
+// parses, validates, and produces a non-empty catalog. If someone
+// breaks the //go:embed directive or ships an empty file, this test
+// fails before any docker-compose verification can.
+func TestLoadResourcesConfig_EmbeddedDefault(t *testing.T) {
+	cfg, err := LoadResourcesConfig("")
+	require.NoError(t, err)
+	require.NotNil(t, cfg)
+	assert.NotEmpty(t, cfg.Version, "embedded YAML must declare a version")
+	assert.NotEmpty(t, cfg.Resources, "embedded YAML must define at least one resource")
+
+	// Spot-check that resource_id is set on every embedded resource —
+	// the loader's validateMappings rejects missing values, so reaching
+	// here means each entry passed validation. We assert it explicitly
+	// to make any future weakening of the validator visible at this
+	// test boundary.
+	for i := range cfg.Resources {
+		r := cfg.Resources[i]
+		assert.NotEmpty(t, r.ID, "resource[%d] missing id", i)
+		assert.NotEmpty(t, r.Inventory.RequiredMappings["resource_id"],
+			"resource %q missing required_mappings.resource_id", r.ID)
+	}
+}
+
+// TestLoadResourcesConfig_OverridePath asserts the override semantic:
+// when CONFIG_PATH points at a real file, that file fully replaces
+// the embedded default. We hand the loader a deliberately *smaller*
+// catalog (one resource) and verify both that it loaded and that the
+// embedded default's larger catalog was not silently merged in. This
+// is the contract the user relies on to ship a custom resource set
+// without rebuilding the binary.
+func TestLoadResourcesConfig_OverridePath(t *testing.T) {
+	tmpDir := t.TempDir()
+	configFile := filepath.Join(tmpDir, "custom.yaml")
+
+	// Single-resource override — intentionally unlike the embedded
+	// default so a merge regression would show up as len > 1.
+	customContent := `version: v1
+resources:
+  - id: my-only-resource
+    type: aurora
+    cloud_provider: aws
+    inventory:
+      source: wiz
+      native_type_pattern: "rds/AmazonAuroraPostgreSQL/cluster"
+      required_mappings:
+        resource_id: "externalId"
+        version: "versionDetails.version"
+        engine: "typeFields.kind"
+    eol:
+      provider: endoflife-date
+      product: amazon-aurora-postgresql
+      schema: standard
+`
+	require.NoError(t, os.WriteFile(configFile, []byte(customContent), 0644))
+
+	cfg, err := LoadResourcesConfig(configFile)
+	require.NoError(t, err)
+	require.Len(t, cfg.Resources, 1, "override must fully replace embedded default, not merge")
+	assert.Equal(t, "my-only-resource", cfg.Resources[0].ID)
+}
+
 func TestLoadResourcesConfig_FileNotFound(t *testing.T) {
 	cfg, err := LoadResourcesConfig("/nonexistent/file.yaml")
 	assert.Error(t, err)

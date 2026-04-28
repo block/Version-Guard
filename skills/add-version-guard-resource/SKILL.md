@@ -45,7 +45,7 @@ Before starting, verify you're in the Version Guard repository and infrastructur
 pwd  # Should be in the Version-Guard repo
 
 # 2. Verify generic infrastructure exists
-test -f config/resources.yaml && echo "✅ Config schema exists" || echo "❌ Missing - see SETUP.md"
+test -f pkg/config/defaults/resources.yaml && echo "✅ Config schema exists" || echo "❌ Missing - see SETUP.md"
 test -f pkg/config/loader.go && echo "✅ Config loader exists" || echo "❌ Missing - see SETUP.md"
 test -f pkg/detector/generic/detector.go && echo "✅ Generic detector exists" || echo "❌ Missing - see SETUP.md"
 ```
@@ -194,7 +194,7 @@ Use similar patterns for new resources.
 
 ### Step 5: Generate YAML Config
 
-**Generate config entry** and append to `config/resources.yaml`:
+**Generate config entry** and append to `pkg/config/defaults/resources.yaml`:
 
 Example for OpenSearch:
 
@@ -261,7 +261,7 @@ make test
 Create a properly formatted commit:
 
 ```bash
-git add config/resources.yaml
+git add pkg/config/defaults/resources.yaml
 
 git commit -m "Add {resource-type} support to Version Guard
 

@@ -12,7 +12,9 @@ FROM alpine:3.21
 RUN apk add --no-cache ca-certificates tzdata && adduser -D -u 1000 version-guard
 USER version-guard
 COPY --from=builder /version-guard /app/version-guard
-COPY --from=builder /src/config /app/config
+# No config/ COPY — the canonical resources.yaml is embedded into the
+# binary at build time (see pkg/config/defaults). Operators can still
+# bind-mount a custom YAML and point CONFIG_PATH at it to override.
 WORKDIR /app
 EXPOSE 8080
 ENTRYPOINT ["/app/version-guard"]
