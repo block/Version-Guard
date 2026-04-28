@@ -2,7 +2,6 @@ package endoflife
 
 import (
 	"context"
-	"fmt"
 	"log/slog"
 	"strings"
 	"sync"
@@ -14,43 +13,25 @@ import (
 	"github.com/block/Version-Guard/pkg/types"
 )
 
-// ProductMapping maps engine names to endoflife.date product identifiers.
-// All EOL data comes from endoflife.date — no cloud provider APIs needed.
-var ProductMapping = map[string]string{
-	"kubernetes": "amazon-eks",
-	"k8s":        "amazon-eks",
-	"eks":        "amazon-eks",
-
-	"postgres":          "amazon-rds-postgresql",
-	"postgresql":        "amazon-rds-postgresql",
-	"mysql":             "amazon-rds-mysql",
-	"aurora-postgresql": "amazon-aurora-postgresql",
-	// TODO(endoflife.date#9534): aurora-mysql → amazon-aurora-mysql once the
-	// endoflife.date PR is merged. Until then, aurora-mysql returns UNKNOWN.
-	"aurora-mysql":       "amazon-aurora-mysql",
-	"redis":              "amazon-elasticache-redis",
-	"elasticache-redis":  "amazon-elasticache-redis",
-	"valkey":             "valkey",
-	"elasticache-valkey": "valkey",
-
-	"opensearch":    "amazon-opensearch",
-	"elasticsearch": "elasticsearch",
-
-	"aws-lambda": "aws-lambda",
-}
-
 const (
 	providerName = "endoflife-date-api"
 	falseBool    = "false"
 )
 
-// Provider fetches EOL data from endoflife.date API
+// Provider fetches EOL data for a single endoflife.date product.
+//
+// The product (e.g. "amazon-aurora-postgresql", "amazon-eks") is set at
+// construction time from the YAML-declared eol.product. One Provider
+// instance per resource keeps the engine→product mapping where it
+// already lives — in the resource config file — instead of duplicating
+// it as a hardcoded map in Go.
 //
 //nolint:govet // field alignment sacrificed for readability
 type Provider struct {
 	mu       sync.RWMutex
 	cache    map[string]*cachedVersions
 	client   Client
+	product  string // endoflife.date product identifier (e.g. "amazon-aurora-postgresql")
 	cacheTTL time.Duration
 	group    singleflight.Group // Prevents thundering herd on API calls
 	logger   *slog.Logger
@@ -62,8 +43,10 @@ type cachedVersions struct {
 	fetchedAt time.Time
 }
 
-// NewProvider creates a new endoflife.date EOL provider
-func NewProvider(client Client, cacheTTL time.Duration, logger *slog.Logger) *Provider {
+// NewProvider creates a new endoflife.date EOL provider bound to a single
+// product. The product MUST be a valid endoflife.date product identifier
+// (the loader validates that eol.product is non-empty).
+func NewProvider(client Client, product string, cacheTTL time.Duration, logger *slog.Logger) *Provider {
 	if cacheTTL == 0 {
 		cacheTTL = 24 * time.Hour // Default: cache for 24 hours
 	}
@@ -73,6 +56,7 @@ func NewProvider(client Client, cacheTTL time.Duration, logger *slog.Logger) *Pr
 
 	return &Provider{
 		client:   client,
+		product:  product,
 		cacheTTL: cacheTTL,
 		cache:    make(map[string]*cachedVersions),
 		logger:   logger,
@@ -84,22 +68,21 @@ func (p *Provider) Name() string {
 	return providerName
 }
 
-// Engines returns the list of supported engines
+// Engines returns the engines this provider serves. A Provider instance
+// is bound to a single endoflife.date product, so the returned slice is
+// effectively informational — it carries the product identifier so
+// callers iterating over multiple providers can tell them apart.
 func (p *Provider) Engines() []string {
-	engines := make([]string, 0, len(ProductMapping))
-	for engine := range ProductMapping {
-		engines = append(engines, engine)
-	}
-	return engines
+	return []string{p.product}
 }
 
 // GetVersionLifecycle retrieves lifecycle information for a specific version
+// of the provider's product. The engine argument is used only for
+// version-string normalization (stripping kubernetes-specific prefixes);
+// product resolution comes from p.product, set at construction time.
 func (p *Provider) GetVersionLifecycle(ctx context.Context, engine, version string) (*types.VersionLifecycle, error) {
-	// Normalize engine name
+	// Normalize engine name (used by normalizeVersion only)
 	engine = strings.ToLower(engine)
-	if !p.supportsEngine(engine) {
-		return nil, fmt.Errorf("unsupported engine: %s", engine)
-	}
 
 	// Normalize version format
 	version = normalizeVersion(engine, version)
@@ -148,16 +131,16 @@ func (p *Provider) GetVersionLifecycle(ctx context.Context, engine, version stri
 	}, nil
 }
 
-// ListAllVersions retrieves all versions for an engine
+// ListAllVersions retrieves all versions for the provider's product.
+// The engine argument is preserved on the returned VersionLifecycle
+// values for downstream display; it does not affect which product is
+// queried (each Provider instance is bound to a single product at
+// construction time).
 func (p *Provider) ListAllVersions(ctx context.Context, engine string) ([]*types.VersionLifecycle, error) {
-	// Normalize engine
+	// Normalize engine (used only as a label on returned VersionLifecycles)
 	engine = strings.ToLower(engine)
 
-	// Get product identifier
-	product, ok := ProductMapping[engine]
-	if !ok {
-		return nil, fmt.Errorf("unsupported engine: %s", engine)
-	}
+	product := p.product
 
 	// Use product as cache key
 	cacheKey := product
@@ -343,13 +326,6 @@ func (p *Provider) convertCycle(engine, product string, cycle *ProductCycle) (*t
 	lifecycle.IsEOL = false
 
 	return lifecycle, nil
-}
-
-// supportsEngine checks if the engine is supported by this provider
-func (p *Provider) supportsEngine(engine string) bool {
-	engine = strings.ToLower(engine)
-	_, ok := ProductMapping[engine]
-	return ok
 }
 
 // normalizeVersion normalizes version strings for comparison

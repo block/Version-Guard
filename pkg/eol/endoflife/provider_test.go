@@ -8,16 +8,6 @@ import (
 	"github.com/block/Version-Guard/pkg/types"
 )
 
-func TestProductMapping_AWSLambda(t *testing.T) {
-	product, ok := ProductMapping["aws-lambda"]
-	if !ok {
-		t.Fatal("aws-lambda not found in ProductMapping")
-	}
-	if product != "aws-lambda" {
-		t.Errorf("expected product aws-lambda, got %s", product)
-	}
-}
-
 func TestProvider_GetVersionLifecycle_PostgreSQL(t *testing.T) {
 	// Mock client with test data (using dates relative to 2026-04-08)
 	// Testing with PostgreSQL which uses STANDARD endoflife.date schema
@@ -55,7 +45,7 @@ func TestProvider_GetVersionLifecycle_PostgreSQL(t *testing.T) {
 		},
 	}
 
-	provider := NewProvider(mockClient, 1*time.Hour, nil)
+	provider := NewProvider(mockClient, "amazon-rds-postgresql", 1*time.Hour, nil)
 
 	tests := []struct {
 		name           string
@@ -158,7 +148,7 @@ func TestProvider_ListAllVersions(t *testing.T) {
 		},
 	}
 
-	provider := NewProvider(mockClient, 1*time.Hour, nil)
+	provider := NewProvider(mockClient, "amazon-rds-postgresql", 1*time.Hour, nil)
 
 	versions, err := provider.ListAllVersions(context.Background(), "postgres")
 	if err != nil {
@@ -197,7 +187,7 @@ func TestProvider_Caching(t *testing.T) {
 		},
 	}
 
-	provider := NewProvider(mockClient, 1*time.Hour, nil)
+	provider := NewProvider(mockClient, "amazon-rds-postgresql", 1*time.Hour, nil)
 
 	// First call - should hit API
 	_, err := provider.ListAllVersions(context.Background(), "postgres")
@@ -244,7 +234,7 @@ func TestProvider_CacheExpiration(t *testing.T) {
 	}
 
 	// Very short TTL for testing
-	provider := NewProvider(mockClient, 50*time.Millisecond, nil)
+	provider := NewProvider(mockClient, "amazon-rds-postgresql", 50*time.Millisecond, nil)
 
 	// First call
 	_, err := provider.ListAllVersions(context.Background(), "postgres")
@@ -268,16 +258,6 @@ func TestProvider_CacheExpiration(t *testing.T) {
 	}
 }
 
-func TestProvider_UnsupportedEngine(t *testing.T) {
-	mockClient := &MockClient{}
-	provider := NewProvider(mockClient, 1*time.Hour, nil)
-
-	_, err := provider.GetVersionLifecycle(context.Background(), "unsupported-engine", "1.0")
-	if err == nil {
-		t.Error("Expected error for unsupported engine, got nil")
-	}
-}
-
 func TestProvider_VersionNotFound(t *testing.T) {
 	mockClient := &MockClient{
 		GetProductCyclesFunc: func(ctx context.Context, product string) ([]*ProductCycle, error) {
@@ -292,7 +272,7 @@ func TestProvider_VersionNotFound(t *testing.T) {
 		},
 	}
 
-	provider := NewProvider(mockClient, 1*time.Hour, nil)
+	provider := NewProvider(mockClient, "amazon-rds-postgresql", 1*time.Hour, nil)
 
 	lifecycle, err := provider.GetVersionLifecycle(context.Background(), "postgres", "99.99")
 	if err != nil {
@@ -312,27 +292,22 @@ func TestProvider_VersionNotFound(t *testing.T) {
 }
 
 func TestProvider_Name(t *testing.T) {
-	provider := NewProvider(&MockClient{}, 1*time.Hour, nil)
+	provider := NewProvider(&MockClient{}, "amazon-rds-postgresql", 1*time.Hour, nil)
 	if name := provider.Name(); name != "endoflife-date-api" {
 		t.Errorf("Name() = %s, want endoflife-date-api", name)
 	}
 }
 
+// TestProvider_Engines pins the per-product binding: a Provider instance
+// is constructed for one endoflife.date product, so Engines() echoes back
+// exactly that product. Callers iterating multiple providers can use this
+// to disambiguate without needing a Go-side engine→product table.
 func TestProvider_Engines(t *testing.T) {
-	provider := NewProvider(&MockClient{}, 1*time.Hour, nil)
+	provider := NewProvider(&MockClient{}, "amazon-rds-postgresql", 1*time.Hour, nil)
 	engines := provider.Engines()
 
-	// Check that common engines are present
-	engineMap := make(map[string]bool)
-	for _, e := range engines {
-		engineMap[e] = true
-	}
-
-	requiredEngines := []string{"postgres", "mysql", "redis", "kubernetes"}
-	for _, required := range requiredEngines {
-		if !engineMap[required] {
-			t.Errorf("Expected engine %s to be present", required)
-		}
+	if len(engines) != 1 || engines[0] != "amazon-rds-postgresql" {
+		t.Errorf("Engines() = %v, want [amazon-rds-postgresql]", engines)
 	}
 }
 
@@ -353,7 +328,7 @@ func TestProvider_EKS(t *testing.T) {
 		},
 	}
 
-	provider := NewProvider(mockClient, 1*time.Hour, nil)
+	provider := NewProvider(mockClient, "amazon-eks", 1*time.Hour, nil)
 
 	engines := []string{"kubernetes", "k8s", "eks"}
 	for _, engine := range engines {
@@ -373,7 +348,7 @@ func TestProvider_EKS(t *testing.T) {
 }
 
 func TestConvertCycle_ExtendedSupport(t *testing.T) {
-	provider := NewProvider(&MockClient{}, 1*time.Hour, nil)
+	provider := NewProvider(&MockClient{}, "amazon-eks", 1*time.Hour, nil)
 
 	tests := []struct {
 		name                    string
