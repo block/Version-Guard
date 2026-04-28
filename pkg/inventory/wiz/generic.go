@@ -271,7 +271,7 @@ func (s *GenericInventorySource) parseResourceRow(
 		engine = detectOpenSearchEngine(version)
 	}
 
-	// Parse tags to extract service, brand
+	// Parse tags to extract service
 	tagsJSON := cols.col(row, s.column("tags", colHeaderTags))
 	tags, err := ParseTags(tagsJSON)
 	if err != nil {
@@ -281,10 +281,9 @@ func (s *GenericInventorySource) parseResourceRow(
 		tags = nil
 	}
 
-	// Extract service and brand from tags using TagConfig
+	// Extract service from tags using TagConfig
 	tagConfig := DefaultTagConfig()
 	service := tagConfig.GetAppTag(tags)
-	brand := tagConfig.GetBrandTag(tags)
 
 	// If no service in tags, try to extract from resource name
 	if service == "" {
@@ -307,7 +306,6 @@ func (s *GenericInventorySource) parseResourceRow(
 		CurrentVersion: version,
 		Engine:         engine,
 		Service:        service,
-		Brand:          brand,
 		Tags:           tags,
 		DiscoveredAt:   discoveredAt,
 	}

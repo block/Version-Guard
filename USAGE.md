@@ -524,7 +524,6 @@ HTTP_PORT=8081
 # Tag Configuration (customize AWS resource tag keys)
 TAG_APP_KEYS=app,application,service
 TAG_ENV_KEYS=environment,env
-TAG_BRAND_KEYS=brand
 
 # Logging
 LOG_LEVEL=info
@@ -532,12 +531,9 @@ LOG_LEVEL=info
 
 **Customizing Tag Keys:**
 
-Version Guard extracts metadata from AWS resource tags to determine service ownership, environment, and brand. By default, it looks for tags like `app`, `application`, `service`, etc. Customize these to match your organization's tagging conventions:
+Version Guard extracts metadata from AWS resource tags to determine service ownership and environment. By default, it looks for tags like `app`, `application`, `service`, etc. Customize these to match your organization's tagging conventions:
 
 ```bash
-# Example: Organization uses "cost-center" for business units
-TAG_BRAND_KEYS=cost-center,department,business-unit
-
 # Example: Organization uses "team" for service attribution
 TAG_APP_KEYS=team,squad,component,application
 
@@ -608,7 +604,7 @@ temporal workflow describe \
 
 **Fix**:
 - Ensure resource is in Wiz report (or mock inventory if testing)
-- Verify resource tags (app, service, brand)
+- Verify resource tags (app, service)
 - Check EOL provider implementation for version coverage
 
 ---

@@ -58,9 +58,6 @@ type Resource struct {
 	// - Azure: Region (e.g., "eastus")
 	CloudRegion string
 
-	// Brand is the business unit or brand (e.g., "brand-a", "brand-b")
-	Brand string
-
 	// CurrentVersion is the engine or runtime version currently running
 	CurrentVersion string
 
@@ -141,9 +138,6 @@ type Finding struct {
 
 	// CloudRegion is the cloud region
 	CloudRegion string
-
-	// Brand is the business unit or brand
-	Brand string
 
 	// CurrentVersion is the version currently running
 	CurrentVersion string

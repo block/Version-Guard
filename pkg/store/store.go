@@ -32,7 +32,6 @@ type FindingFilters struct {
 	Status         *types.Status
 	CloudAccountID *string
 	CloudRegion    *string
-	Brand          *string
 	Engine         *string
 }
 

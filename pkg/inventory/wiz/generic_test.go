@@ -338,8 +338,8 @@ func TestParseResourceRow(t *testing.T) {
 	assert.Equal(t, "15.3", resource.CurrentVersion)
 	assert.Equal(t, "aurora-postgresql", resource.Engine)
 	assert.Equal(t, "my-service", resource.Service)
-	assert.Equal(t, "afterpay", resource.Brand)
-	// Verify all tags are stored
+	// Verify all tags are stored verbatim (any unrecognized tag,
+	// e.g. "brand", flows through untouched).
 	assert.NotNil(t, resource.Tags)
 	assert.Equal(t, "my-service", resource.Tags["app"])
 	assert.Equal(t, "afterpay", resource.Tags["brand"])
@@ -745,7 +745,6 @@ func TestParseResourceRow_Lambda(t *testing.T) {
 	assert.Equal(t, "python3.12", resource.CurrentVersion)
 	assert.Equal(t, "aws-lambda", resource.Engine)
 	assert.Equal(t, "my-function", resource.Service)
-	assert.Equal(t, "brand-a", resource.Brand)
 }
 
 func TestParseResourceRow_LambdaNoRuntime(t *testing.T) {
