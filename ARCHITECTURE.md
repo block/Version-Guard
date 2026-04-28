@@ -79,7 +79,7 @@ resources:
         # For EKS, externalId is a Wiz-internal hash; providerUniqueId is the ARN.
         resource_id: "providerUniqueId"
         version: "versionDetails.version"
-        # engine is implicit ("eks") — EKS reports have no engine column.
+        # No engine column; produced by transforms.engine below.
       # field_mappings: optional. Typed keys (tags) populate the typed
       # Resource; everything else lands in Resource.Extra under its YAML key.
       field_mappings:
@@ -87,6 +87,12 @@ resources:
         account_id: "cloudAccount.externalId"
         region: "region"
         tags: "tags"
+    transforms:
+      # Per-resource version/engine reshaping declared in YAML —
+      # zero Go changes for a new resource that fits any existing op.
+      # Full reference: TRANSFORMS.md.
+      engine:
+        default_if_empty: "eks"
     eol:
       provider: endoflife-date       # EOL data provider
       product: amazon-eks            # endoflife.date product ID
@@ -721,6 +727,16 @@ resources:
 (optional; missing keys produce empty Extra entries).
 
 **Native Type Pattern:** The Wiz `nativeType` to filter (supports wildcards like `elastiCache/*/cluster`).
+
+**Transforms (optional):** When the raw column values for `version` or
+`engine` aren't already the canonical strings endoflife.date expects,
+declare a `transforms` block. Available named operations cover JSON
+extraction (Lambda runtime), prefix stripping (OpenSearch versions),
+constants (Lambda's `aws-lambda` engine), defaults-when-empty (EKS),
+substring lookups (Aurora engine canonicalization), and version-major
+lookups (legacy Elasticsearch vs OpenSearch). The DSL is deliberately
+narrow — no expressions, one named op per field. Full reference:
+[TRANSFORMS.md](./TRANSFORMS.md).
 
 **EOL Configuration:**
 - `provider`: Currently only `endoflife-date` supported

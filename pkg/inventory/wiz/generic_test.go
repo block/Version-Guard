@@ -223,70 +223,9 @@ func TestMatchesNativeTypePattern(t *testing.T) {
 	}
 }
 
-func TestNormalizeEngine(t *testing.T) {
-	tests := []struct {
-		name         string
-		engine       string
-		resourceType string
-		expected     string
-	}{
-		{
-			name:         "Aurora MySQL",
-			engine:       "AuroraMySQL",
-			resourceType: "aurora",
-			expected:     "aurora-mysql",
-		},
-		{
-			name:         "Aurora PostgreSQL",
-			engine:       "AuroraPostgreSQL",
-			resourceType: "aurora",
-			expected:     "aurora-postgresql",
-		},
-		{
-			name:         "Aurora MySQL lowercase",
-			engine:       "auroramysql",
-			resourceType: "aurora",
-			expected:     "aurora-mysql",
-		},
-		{
-			name:         "Redis",
-			engine:       "Redis",
-			resourceType: "elasticache",
-			expected:     "redis",
-		},
-		{
-			name:         "Valkey",
-			engine:       "Valkey",
-			resourceType: "elasticache",
-			expected:     "valkey",
-		},
-		{
-			name:         "EKS with kubernetes",
-			engine:       "Kubernetes",
-			resourceType: "eks",
-			expected:     "eks",
-		},
-		{
-			name:         "EKS with k8s",
-			engine:       "k8s",
-			resourceType: "eks",
-			expected:     "eks",
-		},
-		{
-			name:         "Trim whitespace",
-			engine:       "  Redis  ",
-			resourceType: "elasticache",
-			expected:     "redis",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := normalizeEngine(tt.engine, tt.resourceType)
-			assert.Equal(t, tt.expected, result)
-		})
-	}
-}
+// Engine normalization (Aurora substring rules, EKS default, plus
+// the lowercase+trim baseline) is now driven by YAML transforms;
+// see TestApplyEngineTransform in transforms_test.go.
 
 func TestParseResourceRow(t *testing.T) {
 	// In v2, name/account_id/region are no longer typed: they're
@@ -305,6 +244,7 @@ func TestParseResourceRow(t *testing.T) {
 				"engine":     "typeFields.kind",
 			},
 		},
+		Transforms: auroraTransforms(),
 	}
 
 	source := NewGenericInventorySource(&Client{}, &cfg, nil, nil)
@@ -644,6 +584,7 @@ func TestParseResourceRow_ReadsFromRequiredMappings(t *testing.T) {
 				"tags":       "tags",
 			},
 		},
+		Transforms: auroraTransforms(),
 	}
 
 	source := NewGenericInventorySource(&Client{}, &cfg, nil, nil)
@@ -796,79 +737,41 @@ func TestGetResource(t *testing.T) {
 	assert.Error(t, err)
 }
 
-func TestExtractLambdaRuntime(t *testing.T) {
-	tests := []struct {
-		name     string
-		json     string
-		expected string
-	}{
-		{
-			name:     "Python runtime",
-			json:     `{"runtime":"python3.12","memorySize":256}`,
-			expected: "python3.12",
+// Lambda runtime JSON extraction is now handled by the
+// extract_json_field version transform; see TestApplyVersionTransform
+// in transforms_test.go for the full op coverage (valid runtimes,
+// invalid JSON, missing/non-string fields, whitespace).
+
+// lambdaTransforms returns the YAML transform block that mirrors the
+// canonical Lambda config: extract runtime from graphEntity.properties
+// and skip container-image rows whose runtime is empty/null; engine
+// is constant "aws-lambda".
+func lambdaTransforms() config.TransformsConfig {
+	return config.TransformsConfig{
+		Version: &config.VersionTransform{
+			ExtractJSONField: &config.ExtractJSONFieldOp{
+				FromColumn:  colHeaderGraphProperties,
+				Field:       "runtime",
+				SkipIfEmpty: true,
+			},
 		},
-		{
-			name:     "Node.js runtime",
-			json:     `{"runtime":"nodejs20.x","memorySize":512}`,
-			expected: "nodejs20.x",
-		},
-		{
-			name:     "Java runtime",
-			json:     `{"runtime":"java21","memorySize":1024}`,
-			expected: "java21",
-		},
-		{
-			name:     "Custom runtime provided.al2023",
-			json:     `{"runtime":"provided.al2023","memorySize":128}`,
-			expected: "provided.al2023",
-		},
-		{
-			name:     "Custom runtime provided.al2",
-			json:     `{"runtime":"provided.al2","memorySize":128}`,
-			expected: "provided.al2",
-		},
-		{
-			name:     "Dotnet runtime",
-			json:     `{"runtime":"dotnet8","memorySize":512}`,
-			expected: "dotnet8",
-		},
-		{
-			name:     "Ruby runtime",
-			json:     `{"runtime":"ruby3.3","memorySize":256}`,
-			expected: "ruby3.3",
-		},
-		{
-			name:     "No runtime field",
-			json:     `{"memorySize":256}`,
-			expected: "",
-		},
-		{
-			name:     "Empty JSON",
-			json:     "",
-			expected: "",
-		},
-		{
-			name:     "Invalid JSON",
-			json:     "not json",
-			expected: "",
-		},
-		{
-			name:     "Runtime is not a string",
-			json:     `{"runtime":123}`,
-			expected: "",
-		},
-		{
-			name:     "Runtime with whitespace",
-			json:     `{"runtime":"  python3.12  "}`,
-			expected: "python3.12",
+		Engine: &config.EngineTransform{
+			Constant: "aws-lambda",
 		},
 	}
+}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := extractLambdaRuntime(tt.json)
-			assert.Equal(t, tt.expected, result)
-		})
+// auroraTransforms mirrors the canonical Aurora config: lowercase
+// the engine column and map "AuroraMySQL" / "AuroraPostgreSQL"
+// substrings to canonical engine names.
+func auroraTransforms() config.TransformsConfig {
+	return config.TransformsConfig{
+		Engine: &config.EngineTransform{
+			SubstringLookup: []config.SubstringLookupRule{
+				{Contains: []string{"aurora", "mysql"}, Result: "aurora-mysql"},
+				{Contains: []string{"aurora", "postgres"}, Result: "aurora-postgresql"},
+			},
+		},
 	}
 }
 
@@ -885,6 +788,7 @@ func TestParseResourceRow_Lambda(t *testing.T) {
 				"resource_id": "externalId",
 			},
 		},
+		Transforms: lambdaTransforms(),
 	}
 
 	source := NewGenericInventorySource(&Client{}, &cfg, nil, nil)
@@ -938,6 +842,7 @@ func TestParseResourceRow_LambdaNoRuntime(t *testing.T) {
 				"resource_id": "externalId",
 			},
 		},
+		Transforms: lambdaTransforms(),
 	}
 
 	source := NewGenericInventorySource(&Client{}, &cfg, nil, nil)
@@ -968,7 +873,12 @@ func TestParseResourceRow_LambdaNoRuntime(t *testing.T) {
 	assert.Nil(t, resource)
 }
 
-func TestGetRequiredColumns_Lambda(t *testing.T) {
+// TestGetRequiredColumns_DerivedFromTransform asserts that columns
+// referenced by a transform's extract_json_field op are added to the
+// required columns set, so the Wiz header validator catches typos at
+// parse start. This is the YAML-driven replacement for the previous
+// hardcoded "Lambda needs graphEntity.properties" branch.
+func TestGetRequiredColumns_DerivedFromTransform(t *testing.T) {
 	cfg := config.ResourceConfig{
 		Type: "lambda",
 		Inventory: config.InventoryConfig{
@@ -979,13 +889,14 @@ func TestGetRequiredColumns_Lambda(t *testing.T) {
 				"resource_id": "externalId",
 			},
 		},
+		Transforms: lambdaTransforms(),
 	}
 
 	source := NewGenericInventorySource(&Client{}, &cfg, nil, nil)
 	columns := source.getRequiredColumns()
 
-	// Should include graphEntity.properties for Lambda
-	assert.Contains(t, columns, colHeaderGraphProperties)
+	assert.Contains(t, columns, colHeaderGraphProperties,
+		"extract_json_field.from_column must be added to required columns")
 }
 
 func TestListResources_LambdaFixture(t *testing.T) {
@@ -1018,6 +929,7 @@ func TestListResources_LambdaFixture(t *testing.T) {
 				"resource_id": "externalId",
 			},
 		},
+		Transforms: lambdaTransforms(),
 	}
 
 	source := NewGenericInventorySource(wizClient, &cfg, nil, nil)

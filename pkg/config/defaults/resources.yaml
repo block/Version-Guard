@@ -17,12 +17,20 @@ version: v1
 # A given key MUST appear in at most one of the two maps; the loader
 # rejects duplicates.
 #
-# Each resource self-declares what it needs:
-#   - aurora-*, elasticache-*, rds-*: resource_id + version + engine
-#   - eks:        resource_id + version (engine implicitly "eks")
-#   - opensearch: resource_id + version (engine derived from version)
-#   - lambda:     resource_id (version + engine derived from
-#                 graphEntity.properties JSON)
+# Transforms (optional, declarative reshaping of version/engine):
+# resources whose inventory data needs reshaping declare it via a
+# `transforms` block. The DSL is intentionally narrow — one named
+# operation per case, no general expressions. Available ops:
+#
+#   transforms.version.strip_prefixes:    [str, ...]   (OpenSearch)
+#   transforms.version.extract_json_field: {from_column, field, skip_if_empty}  (Lambda)
+#   transforms.engine.constant:            str         (Lambda)
+#   transforms.engine.default_if_empty:    str         (EKS)
+#   transforms.engine.substring_lookup:    [{contains, result}, ...]  (Aurora)
+#   transforms.engine.from_version_major:  {majors, default}  (OpenSearch)
+#
+# Resources without a transforms block use raw column values; engine
+# is lowercased+trimmed by default.
 resources:
   - id: aurora-postgresql
     type: aurora
@@ -39,6 +47,15 @@ resources:
         account_id: "cloudAccount.externalId"
         region: "region"
         tags: "tags"
+    transforms:
+      engine:
+        # native_type_pattern guarantees every row here has
+        # typeFields.kind="AuroraPostgreSQL". Lowercased it becomes
+        # "aurorapostgresql"; map that to the engine name
+        # endoflife.date keys cycles by.
+        substring_lookup:
+          - contains: ["aurora", "postgres"]
+            result: "aurora-postgresql"
     eol:
       provider: endoflife-date
       product: amazon-aurora-postgresql
@@ -59,6 +76,11 @@ resources:
         account_id: "cloudAccount.externalId"
         region: "region"
         tags: "tags"
+    transforms:
+      engine:
+        substring_lookup:
+          - contains: ["aurora", "mysql"]
+            result: "aurora-mysql"
     eol:
       provider: endoflife-date
       product: amazon-aurora-mysql
@@ -81,6 +103,11 @@ resources:
         account_id: "cloudAccount.externalId"
         region: "region"
         tags: "tags"
+    transforms:
+      engine:
+        # EKS reports have no engine column; default the empty string
+        # to the engine name endoflife.date uses.
+        default_if_empty: "eks"
     eol:
       provider: endoflife-date
       product: amazon-eks
@@ -116,11 +143,26 @@ resources:
         resource_id: "externalId"
         version: "versionDetails.version"
       field_mappings:
-        # engine is derived from the version (Elasticsearch <= 7.x vs OpenSearch).
+        # engine is derived from the version transform below.
         name: "name"
         account_id: "cloudAccount.externalId"
         region: "region"
         tags: "tags"
+    transforms:
+      version:
+        # Wiz reports "OpenSearch_2.13" / "Elasticsearch_7.10"; strip the
+        # engine prefix so endoflife.date receives the bare version.
+        strip_prefixes: ["OpenSearch_", "Elasticsearch_"]
+      engine:
+        # OpenSearch forked from Elasticsearch at 7.10. Major versions
+        # 5/6/7 are still managed as Elasticsearch on endoflife.date;
+        # 1/2/3+ are OpenSearch.
+        from_version_major:
+          majors:
+            "5": "elasticsearch"
+            "6": "elasticsearch"
+            "7": "elasticsearch"
+          default: "opensearch"
     eol:
       provider: endoflife-date
       product: amazon-opensearch
@@ -173,14 +215,26 @@ resources:
       source: wiz
       native_type_pattern: "lambda"
       required_mappings:
-        # version (runtime) and engine are extracted from
-        # graphEntity.properties JSON, not from individual columns.
+        # version (runtime) and engine are extracted via the transforms
+        # block, not from individual mapped columns.
         resource_id: "externalId"
       field_mappings:
         name: "name"
         account_id: "cloudAccount.externalId"
         region: "region"
         tags: "tags"
+    transforms:
+      version:
+        # Lambda runtime ("python3.12", "nodejs20.x", ...) is the cycle
+        # identifier on endoflife.date's aws-lambda product.
+        # skip_if_empty drops container-image Lambdas (runtime=null) —
+        # AWS doesn't EOL container images so they're out of scope.
+        extract_json_field:
+          from_column: "graphEntity.properties"
+          field: "runtime"
+          skip_if_empty: true
+      engine:
+        constant: "aws-lambda"
     eol:
       provider: endoflife-date
       product: aws-lambda

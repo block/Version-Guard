@@ -13,6 +13,12 @@ type ResourceConfig struct {
 	CloudProvider string          `yaml:"cloud_provider"`
 	Inventory     InventoryConfig `yaml:"inventory"`
 	EOL           EOLConfig       `yaml:"eol"`
+
+	// Transforms declares per-resource version/engine reshaping.
+	// Optional — resources without quirky inventory data omit it
+	// entirely and the parser uses raw column values. See
+	// transforms.go for the operation set and rationale.
+	Transforms TransformsConfig `yaml:"transforms,omitempty"`
 }
 
 // InventoryConfig defines inventory source configuration.

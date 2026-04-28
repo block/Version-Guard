@@ -26,6 +26,14 @@
         account_id: "cloudAccount.externalId"
         region: "region"
         tags: "tags"
+    transforms:
+      # Wiz's typeFields.kind reports "AuroraPostgreSQL"; map to
+      # the engine name endoflife.date keys cycles by. See
+      # TRANSFORMS.md for the full operation reference.
+      engine:
+        substring_lookup:
+          - contains: ["aurora", "postgres"]
+            result: "aurora-postgresql"
     eol:
       provider: endoflife-date
       product: amazon-aurora-postgresql
