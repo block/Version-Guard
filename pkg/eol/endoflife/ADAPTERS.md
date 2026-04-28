@@ -44,8 +44,16 @@ classified YELLOW. Simple.
 
 ## The EKS gotcha — three deviations from the standard
 
-EKS does not match the standard schema in three concrete ways. Two of
-them invert what a field means; the third removes a concept entirely.
+EKS does not match the standard schema in three concrete ways:
+
+1. The same field name (`cycle.eol`) means a different thing on EKS
+   than on standard products.
+2. EKS removes a concept that standard products always have (true EOL).
+3. The adapter compensates for (1) and (2) with a routing that itself
+   loses information — output field name and source field name do not
+   mean the same thing.
+
+Each deviation, in turn:
 
 ### Deviation 1 — `cycle.eol` is **not** the true EOL
 
@@ -62,12 +70,16 @@ not the day the version stops working. Compare:
 ```
 
 If you ran cycle 1.31 through `StandardSchemaAdapter`, today
-(2026-04-28) it would be flagged `IsEOL=true` and classified RED — even
-though the cluster is **still supported by AWS** (in extended support
-until 2026-11-26). That's a false RED on a live, AWS-supported cluster.
+(2026-04-28) it would be flagged `IsEOL=true` — implying the cluster
+has stopped working. It hasn't. The cluster is in extended support and
+will be supported by AWS until 2026-11-26. `EKSSchemaAdapter` avoids
+that specific misclassification by hard-setting `lifecycle.EOLDate =
+nil` (see Deviation 2) and routing `cycle.eol` into
+`lifecycle.ExtendedSupportEnd` instead.
 
-`EKSSchemaAdapter` instead routes `cycle.eol` to `ExtendedSupportEnd`
-and explicitly leaves `lifecycle.EOLDate = nil` (see next deviation).
+(Even after this routing the in-extended-support classification is
+still imperfect — see Deviation 3 — but no version is ever reported as
+past true EOL.)
 
 ### Deviation 2 — EKS has no true EOL
 
@@ -79,44 +91,57 @@ field for EKS, and the adapter encodes that by hard-setting
 keyed on `EOLDate` is therefore inert for EKS — the policy reads
 `ExtendedSupportEnd` instead.
 
-### Deviation 3 — `cycle.extendedSupport` shape (historical)
+### Deviation 3 — `cycle.eol` (standard-support-end) is mapped onto `ExtendedSupportEnd`; `cycle.extendedSupport` is ignored
 
-Older endoflife.date snapshots returned `extendedSupport` as a boolean
-flag (`true`/`false`) — the adapter was originally written to handle
-that case and ignore it for date computations. Live data today returns
-a date here for EKS (see live cycle 1.31 above), so the field is still
-ignored by the EKS adapter — `cycle.eol` already carries the
-extended-support-end date for EKS. **This means the adapter currently
-ignores `cycle.extendedSupport` entirely for EKS**, which is the
-correct behavior given how EKS uses `cycle.eol`, but the field name
-overlap is the easiest part of this code to misread. Read the adapter,
-not the field name.
+The adapter routes `cycle.eol` (which marks **standard-support-end** —
+see Deviation 1) into the output field `lifecycle.ExtendedSupportEnd`,
+and ignores `cycle.extendedSupport` entirely. This is the part of the
+adapter most likely to mislead a reader of the code: input field name
+and output field name **do not** mean the same thing.
+
+In effect, the adapter pretends standard-support-end is
+extended-support-end. For cycle 1.31:
+
+| Source field            | Source value | Real meaning             | Mapped to                    | Effect                                                              |
+| ----------------------- | ------------ | ------------------------ | ---------------------------- | ------------------------------------------------------------------- |
+| `cycle.eol`             | `2025-11-26` | standard-support-end     | `lifecycle.ExtendedSupportEnd` | adapter treats this date as the policy threshold for "past extended support" |
+| `cycle.extendedSupport` | `2026-11-26` | extended-support-end     | (ignored)                    | the real extended-support window is invisible to the policy layer    |
+
+Historical reason: when the adapter was written, endoflife.date
+returned `extendedSupport` as a boolean flag, so `cycle.eol` was the
+only available date signal. Live data now returns a real date in
+`extendedSupport`, but the adapter has not been updated.
+
+**Consequence:** an EKS version that is genuinely in extended support
+today is classified as past-extended-support (RED) by the policy
+layer. This is a known coarsening — it errs toward urging upgrades,
+which matches the intended product behavior, but it is a real
+semantic gap to be aware of when reading EKS findings, and a
+candidate for a follow-up fix.
 
 ---
 
 ## What the adapter actually outputs
 
 For `amazon-eks` cycle 1.31 (`eol: 2025-11-26`,
-`extendedSupport: 2026-11-26`) on a date inside the extended-support
-window:
+`extendedSupport: 2026-11-26`), evaluated on 2026-04-28 — a date that
+is genuinely inside the AWS-defined extended-support window
+(2025-11-26 → 2026-11-26):
 
-| Field                           | Value                  |
-| ------------------------------- | ---------------------- |
-| `EOLDate`                       | `nil` (always for EKS) |
-| `DeprecationDate`               | `nil` (no `support` field on EKS cycles) |
-| `ExtendedSupportEnd`            | `2025-11-26`           |
-| `IsExtendedSupport`             | `false`*               |
-| `IsSupported` / `IsDeprecated`  | depends on `now`       |
+| Field                          | Value        | Source / note                                                                 |
+| ------------------------------ | ------------ | ----------------------------------------------------------------------------- |
+| `EOLDate`                      | `nil`        | always for EKS (Deviation 2)                                                  |
+| `DeprecationDate`              | `nil`        | EKS cycles have no `cycle.support` field                                      |
+| `ExtendedSupportEnd`           | `2025-11-26` | sourced from **`cycle.eol`** (standard-support-end) — *not* `cycle.extendedSupport`; see Deviation 3 |
+| `IsExtendedSupport`            | `false`*     | branch is unreachable in practice — see footnote                              |
+| `IsSupported` / `IsDeprecated` | `false` / `true` | classified RED, because `now` (2026-04-28) is past `ExtendedSupportEnd` (2025-11-26) — even though AWS is still in real extended support until 2026-11-26 |
 
 \* The adapter reports `IsExtendedSupport=true` only while
 `now` is between `cycle.support` and `cycle.eol` — and EKS cycles have
 no `cycle.support` field, so the "in extended support" branch is
-unreachable in practice. A version inside `[eol, extendedSupport]` is
-reported as past extended support (`IsSupported=false`,
-`IsDeprecated=true`) even though AWS is technically still patching it.
-This is a known coarsening — it errs toward urging upgrades, which is
-the intended product behavior, but it is a real semantic gap to be
-aware of when reading findings.
+unreachable in practice. Combined with Deviation 3, the policy layer
+never sees an EKS version as YELLOW; it's GREEN until it crosses
+`cycle.eol` (standard-support-end), then RED.
 
 ---
 
