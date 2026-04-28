@@ -316,7 +316,7 @@ func TestParseResourceRow(t *testing.T) {
 	tagsJSON := `[{"key":"app","value":"my-service"},{"key":"brand","value":"afterpay"}]`
 
 	row := []string{
-		"arn:aws:rds:us-west-2:123456789012:cluster:my-cluster", // external_id
+		"arn:aws:rds:us-west-2:123456789012:cluster:my-cluster", // resource_id
 		"my-cluster",       // name
 		"123456789012",     // account_id
 		"us-west-2",        // region
@@ -343,6 +343,129 @@ func TestParseResourceRow(t *testing.T) {
 	assert.NotNil(t, resource.Tags)
 	assert.Equal(t, "my-service", resource.Tags["app"])
 	assert.Equal(t, "afterpay", resource.Tags["brand"])
+}
+
+func TestParseResourceRow_ConfigurableResourceIDColumn(t *testing.T) {
+	// EKS uses "providerUniqueId" for the cluster ARN because Wiz's default
+	// "externalId" column is an internal hash for EKS clusters.
+	cfg := config.ResourceConfig{
+		ID:            "eks",
+		Type:          "eks",
+		CloudProvider: "aws",
+		Inventory: config.InventoryConfig{
+			FieldMappings: map[string]string{
+				"version":     "versionDetails.version",
+				"resource_id": "providerUniqueId",
+			},
+		},
+	}
+
+	source := NewGenericInventorySource(&Client{}, &cfg, nil, nil)
+
+	cols := columnIndex{
+		colHeaderExternalID:      0, // Wiz internal hash (should be ignored)
+		colHeaderName:            1,
+		colHeaderAccountID:       2,
+		colHeaderRegion:          3,
+		"versionDetails.version": 4,
+		colHeaderTags:            5,
+		"providerUniqueId":       6,
+	}
+
+	row := []string{
+		"abc123-wiz-internal-hash", // externalId (ignored)
+		"my-eks-cluster",           // name
+		"123456789012",             // account_id
+		"us-east-1",                // region
+		"1.30",                     // version
+		"[]",                       // tags
+		"arn:aws:eks:us-east-1:123456789012:cluster/my-eks-cluster", // providerUniqueId
+	}
+
+	ctx := context.Background()
+	resource, err := source.parseResourceRow(ctx, cols, row)
+
+	require.NoError(t, err)
+	assert.Equal(
+		t,
+		"arn:aws:eks:us-east-1:123456789012:cluster/my-eks-cluster",
+		resource.ID,
+		"resource.ID should be the cluster ARN from providerUniqueId, not the Wiz internal hash from externalId",
+	)
+}
+
+func TestParseResourceRow_AllMappingsAreConfigurable(t *testing.T) {
+	// Use non-canonical Wiz column names everywhere to prove the parser
+	// reads through field_mappings rather than the hard-coded constants.
+	cfg := config.ResourceConfig{
+		ID:            "rds",
+		Type:          "rds",
+		CloudProvider: "aws",
+		Inventory: config.InventoryConfig{
+			FieldMappings: map[string]string{
+				"resource_id": "MyId",
+				"name":        "MyName",
+				"account_id":  "MyAccount",
+				"region":      "MyRegion",
+				"version":     "MyVersion",
+				"engine":      "MyEngine",
+				"tags":        "MyTags",
+			},
+		},
+	}
+
+	source := NewGenericInventorySource(&Client{}, &cfg, nil, nil)
+
+	cols := columnIndex{
+		"MyId":       0,
+		"MyName":     1,
+		"MyAccount":  2,
+		"MyRegion":   3,
+		"MyVersion":  4,
+		"MyEngine":   5,
+		"MyTags":     6,
+		"nativeType": 7,
+	}
+
+	row := []string{
+		"arn:aws:rds:us-west-2:123456789012:db:my-db", // MyId
+		"my-db",                         // MyName
+		"123456789012",                  // MyAccount
+		"us-west-2",                     // MyRegion
+		"8.0.34",                        // MyVersion
+		"MySQL",                         // MyEngine
+		`[{"key":"app","value":"svc"}]`, // MyTags
+		"rds/MySQL/instance",            // nativeType
+	}
+
+	resource, err := source.parseResourceRow(context.Background(), cols, row)
+	require.NoError(t, err)
+
+	assert.Equal(t, "arn:aws:rds:us-west-2:123456789012:db:my-db", resource.ID)
+	assert.Equal(t, "my-db", resource.Name)
+	assert.Equal(t, "123456789012", resource.CloudAccountID)
+	assert.Equal(t, "us-west-2", resource.CloudRegion)
+	assert.Equal(t, "8.0.34", resource.CurrentVersion)
+	assert.Equal(t, "mysql", resource.Engine)
+	assert.Equal(t, "svc", resource.Service)
+}
+
+func TestGetRequiredColumns_ConfigurableResourceIDColumn(t *testing.T) {
+	cfg := config.ResourceConfig{
+		Inventory: config.InventoryConfig{
+			FieldMappings: map[string]string{
+				"resource_id": "providerUniqueId",
+			},
+		},
+	}
+
+	source := NewGenericInventorySource(&Client{}, &cfg, nil, nil)
+	columns := source.getRequiredColumns()
+
+	assert.Contains(t, columns, "providerUniqueId",
+		"required columns should reflect the configured resource_id mapping")
+	assert.NotContains(t, columns, colHeaderExternalID,
+		"the default externalId column should not be required when overridden")
 }
 
 func TestParseResourceRow_MissingRequiredFields(t *testing.T) {
@@ -582,7 +705,7 @@ func TestParseResourceRow_Lambda(t *testing.T) {
 				"region":      "region",
 				"account_id":  "cloudAccount.externalId",
 				"name":        "name",
-				"external_id": "externalId",
+				"resource_id": "externalId",
 			},
 		},
 	}
@@ -601,7 +724,7 @@ func TestParseResourceRow_Lambda(t *testing.T) {
 	tagsJSON := `[{"key":"app","value":"my-function"},{"key":"brand","value":"brand-a"}]`
 
 	row := []string{
-		"arn:aws:lambda:us-east-1:123456789012:function:my-func", // external_id
+		"arn:aws:lambda:us-east-1:123456789012:function:my-func", // resource_id
 		"my-func",      // name
 		"123456789012", // account_id
 		"us-east-1",    // region
@@ -635,7 +758,7 @@ func TestParseResourceRow_LambdaNoRuntime(t *testing.T) {
 				"region":      "region",
 				"account_id":  "cloudAccount.externalId",
 				"name":        "name",
-				"external_id": "externalId",
+				"resource_id": "externalId",
 			},
 		},
 	}
@@ -676,7 +799,7 @@ func TestGetRequiredColumns_Lambda(t *testing.T) {
 				"region":      "region",
 				"account_id":  "cloudAccount.externalId",
 				"name":        "name",
-				"external_id": "externalId",
+				"resource_id": "externalId",
 			},
 		},
 	}
@@ -715,7 +838,7 @@ func TestListResources_LambdaFixture(t *testing.T) {
 				"region":      "region",
 				"account_id":  "cloudAccount.externalId",
 				"name":        "name",
-				"external_id": "externalId",
+				"resource_id": "externalId",
 			},
 		},
 	}

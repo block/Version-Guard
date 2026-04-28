@@ -56,7 +56,15 @@ if ! command -v golangci-lint &> /dev/null; then
     exit 1
 fi
 
-if ! golangci-lint run --timeout=5m; then
+# Match CI's behavior (only-new-issues: true) by linting only changes
+# relative to origin/main. This avoids surfacing pre-existing issues
+# unrelated to the push and keeps the hook aligned with CI.
+LINT_BASE_REF="origin/main"
+if ! git rev-parse --verify --quiet "$LINT_BASE_REF" >/dev/null; then
+    LINT_BASE_REF="main"
+fi
+
+if ! golangci-lint run --timeout=5m --new-from-rev="$LINT_BASE_REF"; then
     echo -e "${RED}❌ Linting failed${NC}"
     echo -e "${YELLOW}💡 Run 'make lint' to see all issues${NC}"
     echo -e "${YELLOW}💡 Run 'golangci-lint run --fix' to auto-fix some issues${NC}"
