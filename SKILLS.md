@@ -45,7 +45,7 @@ AI skills are structured instruction sets that teach AI agents how to perform sp
 2. 📝 Gathers required inputs (resource ID, Wiz report ID, display name)
 3. 🔍 Auto-detects Wiz CSV schema from existing test fixtures
 4. ⚙️ Checks if EOL adapter customization is needed
-5. 📄 Generates `config/resources.yaml` entry
+5. 📄 Generates `pkg/config/defaults/resources.yaml` entry
 6. 🧪 Runs tests to verify configuration works
 7. 📦 Creates properly formatted git commit
 
@@ -187,7 +187,7 @@ Use the add-version-guard-resource skill to add OpenSearch support
 
 4. **Checks adapters** - Verifies if EOL data needs custom parsing
 
-5. **Generates config** - Adds to `config/resources.yaml`:
+5. **Generates config** - Adds to `pkg/config/defaults/resources.yaml`:
    ```yaml
    - id: opensearch
      name: OpenSearch
@@ -208,7 +208,7 @@ Use the add-version-guard-resource skill to add OpenSearch support
    ```
    Add OpenSearch resource support
 
-   - Added OpenSearch to config/resources.yaml
+   - Added OpenSearch to pkg/config/defaults/resources.yaml
    - EOL product: opensearch
    - Wiz report: wiz#report#abc123
    - Uses standard schema (EngineVersion, ClusterName)
@@ -440,7 +440,7 @@ head -20 skills/add-version-guard-resource/SKILL.md
 cd ~/Version-Guard
 
 # Check infrastructure
-test -f config/resources.yaml && echo "✅ Config exists" || echo "❌ Missing"
+test -f pkg/config/defaults/resources.yaml && echo "✅ Config exists" || echo "❌ Missing"
 test -f pkg/config/loader.go && echo "✅ Loader exists" || echo "❌ Missing"
 test -f pkg/detector/generic/detector.go && echo "✅ Detector exists" || echo "❌ Missing"
 ```
@@ -491,7 +491,7 @@ go test ./pkg/inventory/wiz/ -v
 **Common Issues:**
 
 1. **Wiz report ID incorrect**
-   - Verify report ID in `config/resources.yaml`
+   - Verify report ID in `pkg/config/defaults/resources.yaml`
    - Check that Wiz report exists and is accessible
 
 2. **EOL product mismatch**

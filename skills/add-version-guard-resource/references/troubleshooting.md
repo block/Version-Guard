@@ -5,10 +5,10 @@
 **Symptom**: `go test` fails with YAML parsing errors
 
 **Solution**:
-- Check YAML syntax in config/resources.yaml
+- Check YAML syntax in pkg/config/defaults/resources.yaml
 - Verify indentation uses spaces (not tabs)
 - Ensure all quotes are closed
-- Run: `cat config/resources.yaml | head -50` to inspect
+- Run: `cat pkg/config/defaults/resources.yaml | head -50` to inspect
 
 ## Missing Dependencies
 

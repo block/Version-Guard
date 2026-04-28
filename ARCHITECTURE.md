@@ -8,7 +8,7 @@
 - ✅ **EKS** - Production tested (policy classification working)
 - ✅ **ElastiCache (Redis/Valkey/Memcached)** - Production tested
 
-**Planned Resources** (add ~15 lines to `config/resources.yaml`):
+**Planned Resources** (add ~15 lines to `pkg/config/defaults/resources.yaml`):
 - ✅ **OpenSearch** - Production tested (auto-detects legacy Elasticsearch versions)
 - 📋 RDS MySQL/PostgreSQL
 - 📋 Lambda runtimes
@@ -54,7 +54,7 @@
 
 ### Benefits
 
-1. **Zero Code Changes**: Add resources by editing `config/resources.yaml` only
+1. **Zero Code Changes**: Add resources by editing `pkg/config/defaults/resources.yaml` only
 2. **Reduced Duplication**: Single generic detector/inventory implementation
 3. **Better Testing**: Comprehensive test coverage on generic components
 4. **Single Source of Truth**: All resource definitions in one place
@@ -65,7 +65,7 @@
 ### How It Works
 
 ```yaml
-# config/resources.yaml
+# pkg/config/defaults/resources.yaml
 resources:
   - id: eks                          # Unique identifier
     type: eks                        # Resource type
@@ -267,7 +267,7 @@ type InventorySource interface {
 - `mock.MockInventorySource` - For testing
 
 **How to extend:**
-1. **Config-driven approach (recommended)**: Add resource to `config/resources.yaml` with field mappings
+1. **Config-driven approach (recommended)**: Add resource to `pkg/config/defaults/resources.yaml` with field mappings
 2. **Custom implementation**: Implement the `InventorySource` interface for non-Wiz sources
 
 ### 2. EOLProvider
@@ -329,7 +329,7 @@ type Detector interface {
 ```
 
 **Implementations:**
-- `generic.Detector` - Config-driven detector (handles all resource types defined in `config/resources.yaml`)
+- `generic.Detector` - Config-driven detector (handles all resource types defined in `pkg/config/defaults/resources.yaml`)
 - Custom detectors - For specialized detection logic
 
 **Pattern:**
@@ -361,7 +361,7 @@ func (d *Detector) Detect(ctx context.Context) ([]*Finding, error) {
 ```
 
 **Config-Driven Approach:**
-The generic detector reads configuration from `config/resources.yaml` and automatically handles all configured resource types without code changes.
+The generic detector reads configuration from `pkg/config/defaults/resources.yaml` and automatically handles all configured resource types without code changes.
 
 ### 5. Store
 
@@ -689,7 +689,7 @@ In the Wiz console:
 
 ### 2. Add Resource Configuration
 
-Edit `config/resources.yaml` and add ~15 lines:
+Edit `pkg/config/defaults/resources.yaml` and add ~15 lines:
 
 ```yaml
 resources:

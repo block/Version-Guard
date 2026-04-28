@@ -5,26 +5,53 @@ import (
 
 	"github.com/pkg/errors"
 	"gopkg.in/yaml.v3"
+
+	"github.com/block/Version-Guard/pkg/config/defaults"
 )
 
-// LoadResourcesConfig loads and parses the resources configuration file
+// LoadResourcesConfig loads and parses the resources configuration.
+//
+// When path is empty, the canonical YAML embedded into the binary at
+// build time is used (see pkg/config/defaults). This makes the binary
+// self-contained: a default install scans the standard catalog without
+// needing a sidecar config file.
+//
+// When path is non-empty, the file at that path fully replaces the
+// embedded default — no merge, no overlay. Operators who want a
+// different resource set, mappings, or EOL providers ship their own
+// YAML and point CONFIG_PATH at it. The shape and validation rules
+// are identical regardless of source.
 func LoadResourcesConfig(path string) (*ResourcesConfig, error) {
-	data, err := os.ReadFile(path)
+	data, source, err := loadResourcesYAML(path)
 	if err != nil {
-		return nil, errors.Wrapf(err, "failed to read config file: %s", path)
+		return nil, err
 	}
 
 	var config ResourcesConfig
 	if err := yaml.Unmarshal(data, &config); err != nil {
-		return nil, errors.Wrap(err, "failed to parse YAML config")
+		return nil, errors.Wrapf(err, "failed to parse YAML config from %s", source)
 	}
 
 	// Validate config
 	if err := validateConfig(&config); err != nil {
-		return nil, errors.Wrap(err, "invalid configuration")
+		return nil, errors.Wrapf(err, "invalid configuration from %s", source)
 	}
 
 	return &config, nil
+}
+
+// loadResourcesYAML returns the raw YAML bytes plus a human-readable
+// source label suitable for inclusion in error messages. Empty path =>
+// embedded default; non-empty => disk read.
+func loadResourcesYAML(path string) (data []byte, source string, err error) {
+	if path == "" {
+		return defaults.ResourcesYAML, "embedded default resources.yaml", nil
+	}
+	data, err = os.ReadFile(path)
+	if err != nil {
+		return nil, "", errors.Wrapf(err, "failed to read config file: %s", path)
+	}
+	return data, path, nil
 }
 
 // validateConfig validates the resources configuration

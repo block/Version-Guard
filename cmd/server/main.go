@@ -81,8 +81,12 @@ type ServerCLI struct {
 	ScheduleID      string `help:"Temporal schedule ID" default:"version-guard-scan" env:"SCHEDULE_ID"`
 	ScheduleJitter  string `help:"Schedule jitter duration" default:"5m" env:"SCHEDULE_JITTER"`
 
-	// Resource configuration
-	ConfigPath string `help:"Path to resources config file" default:"config/resources.yaml" env:"CONFIG_PATH"`
+	// Resource configuration. Empty (the default) uses the canonical
+	// resources.yaml embedded into the binary at build time. Set to
+	// override with a custom YAML file — useful for shipping a
+	// different resource catalog, custom field mappings, or alternate
+	// EOL providers without rebuilding.
+	ConfigPath string `help:"Path to resources config file (empty = use embedded default)" env:"CONFIG_PATH"`
 
 	// Global flags
 	Verbose bool `short:"v" help:"Enable verbose logging"`
@@ -193,8 +197,13 @@ func (s *ServerCLI) Run(_ *kong.Context) error {
 	defer temporalClient.Close()
 	fmt.Printf("✓ Connected to Temporal at %s (namespace: %s)\n", s.TemporalEndpoint, s.TemporalNamespace)
 
-	// Load resource configuration
-	fmt.Printf("Loading resource configuration from %s...\n", s.ConfigPath)
+	// Load resource configuration. Empty CONFIG_PATH uses the canonical
+	// YAML embedded into the binary; a non-empty path fully replaces it.
+	if s.ConfigPath == "" {
+		fmt.Println("Loading resource configuration from embedded default...")
+	} else {
+		fmt.Printf("Loading resource configuration from %s (overrides embedded default)...\n", s.ConfigPath)
+	}
 	resourcesConfig, err := vgconfig.LoadResourcesConfig(s.ConfigPath)
 	if err != nil {
 		return fmt.Errorf("failed to load resources config: %w", err)

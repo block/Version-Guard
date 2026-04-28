@@ -73,7 +73,7 @@ Autonomously add new cloud resource types to Version Guard using any AI agent (C
 **What it does:**
 - Queries [endoflife.date](https://endoflife.date) API to validate EOL data coverage
 - Auto-detects Wiz CSV schema from existing test fixtures
-- Generates `config/resources.yaml` entries with proper field mappings
+- Generates `pkg/config/defaults/resources.yaml` entries with proper field mappings
 - Runs tests to verify configuration works
 - Creates properly formatted git commits
 
@@ -96,7 +96,7 @@ amp "Add OpenSearch to Version Guard"
 
 ## 📦 Supported Resources
 
-Version Guard uses a **config-driven approach** - resources are defined in `config/resources.yaml`:
+Version Guard uses a **config-driven approach** - resources are defined in `pkg/config/defaults/resources.yaml`:
 
 | Resource | Inventory | EOL Source | Status |
 |----------|-----------|------------|--------|
@@ -111,7 +111,7 @@ Version Guard uses a **config-driven approach** - resources are defined in `conf
 
 **Adding a new resource type requires:**
 1. A Wiz saved report for the resource type
-2. Adding ~15 lines to `config/resources.yaml`
+2. Adding ~15 lines to `pkg/config/defaults/resources.yaml`
 3. Adding the report ID to `WIZ_REPORT_IDS` environment variable
 
 **No code changes needed!** See [USAGE.md](./USAGE.md) for details.
@@ -304,7 +304,7 @@ Version Guard is configured via environment variables or CLI flags:
 | `WIZ_CLIENT_SECRET_SECRET` | Wiz client secret (optional) | - |
 | `WIZ_REPORT_IDS` | JSON map of resource ID to Wiz report ID (optional) | - |
 | `EOL_BASE_URL` | Custom endoflife.date API base URL (optional) | `https://endoflife.date/api` |
-| `CONFIG_PATH` | Path to resources config file | `config/resources.yaml` |
+| `CONFIG_PATH` | Path to a custom resources config file (overrides the embedded default; empty = use embedded) | _(empty)_ |
 | `TAG_APP_KEYS` | Comma-separated AWS tag keys for app/service | `app,application,service` |
 | `TAG_ENV_KEYS` | Comma-separated AWS tag keys for environment | `environment,env` |
 | `SCHEDULE_ENABLED` | Enable automatic scheduled scanning | `false` |
@@ -312,6 +312,22 @@ Version Guard is configured via environment variables or CLI flags:
 | `SCHEDULE_ID` | Temporal schedule ID (stable across restarts) | `version-guard-scan` |
 | `SCHEDULE_JITTER` | Random jitter to prevent thundering herd | `5m` |
 | `--verbose` / `-v` | Enable debug-level logging | `false` |
+
+**Custom Resource Catalog:**
+
+Version Guard ships with a canonical `resources.yaml` embedded into the binary at build time, so the default install scans the standard catalog with no extra files. Override it by writing your own YAML and pointing `CONFIG_PATH` at it — your file fully replaces the embedded default (no merge, no overlay), so you can change resource IDs, field mappings, EOL providers, or drop resources entirely without rebuilding:
+
+```bash
+# Use the embedded default (no CONFIG_PATH set)
+./version-guard
+
+# Ship a custom catalog
+./version-guard --config-path /etc/version-guard/my-resources.yaml
+# or
+CONFIG_PATH=/etc/version-guard/my-resources.yaml ./version-guard
+```
+
+Use `pkg/config/defaults/resources.yaml` as a starting template — copy it, edit, and bind-mount the file into your container.
 
 **Scheduled Scanning:**
 
@@ -361,7 +377,7 @@ export WIZ_REPORT_IDS='{
 }'
 ```
 
-The keys correspond to resource IDs in `config/resources.yaml`. This approach:
+The keys correspond to resource IDs in `pkg/config/defaults/resources.yaml`. This approach:
 - ✅ Scales to dozens of resources without env var sprawl
 - ✅ Single environment variable to manage
 - ✅ Easy to add new resources (just add to JSON map)

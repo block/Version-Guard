@@ -40,7 +40,7 @@ add-version-guard-resource/
 Before this skill can be used, **Version Guard Phase 1 must be implemented**:
 
 Required files:
-- `config/resources.yaml`
+- `pkg/config/defaults/resources.yaml`
 - `pkg/config/loader.go`
 - `pkg/inventory/wiz/generic.go`
 - `pkg/detector/generic/detector.go`

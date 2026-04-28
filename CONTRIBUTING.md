@@ -149,7 +149,7 @@ The AI agent will autonomously:
 1. ✅ Validate product has EOL data on [endoflife.date](https://endoflife.date)
 2. 📝 Gather required inputs (resource ID, Wiz report ID, display name)
 3. 🔍 Auto-detect Wiz CSV schema from existing test fixtures
-4. ⚙️ Generate `config/resources.yaml` entry with proper field mappings
+4. ⚙️ Generate `pkg/config/defaults/resources.yaml` entry with proper field mappings
 5. 🧪 Run tests to verify configuration works
 6. 📦 Create properly formatted git commit
 
