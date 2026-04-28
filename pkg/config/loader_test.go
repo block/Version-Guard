@@ -22,13 +22,14 @@ resources:
     inventory:
       source: wiz
       native_type_pattern: "rds/AmazonAuroraPostgreSQL/cluster"
-      field_mappings:
-        engine: "typeFields.kind"
-        version: "versionDetails.version"
-        region: "region"
-        account_id: "cloudAccount.externalId"
-        name: "name"
+      required_mappings:
         resource_id: "externalId"
+        version: "versionDetails.version"
+        engine: "typeFields.kind"
+      field_mappings:
+        name: "name"
+        account_id: "cloudAccount.externalId"
+        region: "region"
     eol:
       provider: endoflife-date
       product: amazon-aurora-postgresql
@@ -56,9 +57,12 @@ resources:
 	// Verify inventory config
 	assert.Equal(t, "wiz", res.Inventory.Source)
 	assert.Equal(t, "rds/AmazonAuroraPostgreSQL/cluster", res.Inventory.NativeTypePattern)
-	assert.Len(t, res.Inventory.FieldMappings, 6)
-	assert.Equal(t, "typeFields.kind", res.Inventory.FieldMappings["engine"])
-	assert.Equal(t, "versionDetails.version", res.Inventory.FieldMappings["version"])
+	assert.Len(t, res.Inventory.RequiredMappings, 3)
+	assert.Equal(t, "externalId", res.Inventory.RequiredMappings["resource_id"])
+	assert.Equal(t, "typeFields.kind", res.Inventory.RequiredMappings["engine"])
+	assert.Equal(t, "versionDetails.version", res.Inventory.RequiredMappings["version"])
+	assert.Len(t, res.Inventory.FieldMappings, 3)
+	assert.Equal(t, "name", res.Inventory.FieldMappings["name"])
 
 	// Verify EOL config
 	assert.Equal(t, "endoflife-date", res.EOL.Provider)
@@ -78,7 +82,7 @@ resources:
     inventory:
       source: wiz
       native_type_pattern: "rds/AmazonAuroraPostgreSQL/cluster"
-      field_mappings:
+      required_mappings:
         resource_id: "externalId"
         version: "versionDetails.version"
         engine: "typeFields.kind"
@@ -92,7 +96,7 @@ resources:
     inventory:
       source: wiz
       native_type_pattern: "eks/Cluster"
-      field_mappings:
+      required_mappings:
         resource_id: "providerUniqueId"
         version: "versionDetails.version"
     eol:
@@ -285,50 +289,62 @@ func TestValidateConfig_MissingEOLProvider(t *testing.T) {
 	assert.Contains(t, err.Error(), "eol.provider is required")
 }
 
-func TestValidateConfig_FieldMappings(t *testing.T) {
+// TestValidateConfig_Mappings exercises the required_mappings /
+// field_mappings split: each resource self-declares what's required,
+// every value in required_mappings must be non-empty, and a key may
+// appear in at most one of the two maps.
+func TestValidateConfig_Mappings(t *testing.T) {
 	tests := []struct {
-		name        string
-		resourceTyp string
-		mappings    map[string]string
-		wantErrSub  string
+		name       string
+		required   map[string]string
+		field      map[string]string
+		wantErrSub string
 	}{
 		{
-			name:        "missing resource_id fails",
-			resourceTyp: "aurora",
-			mappings:    map[string]string{"version": "v", "engine": "e"},
-			wantErrSub:  "field_mappings.resource_id is required",
+			name:       "missing resource_id fails",
+			required:   map[string]string{"version": "v", "engine": "e"},
+			wantErrSub: "required_mappings.resource_id is required",
 		},
 		{
-			name:        "missing version fails for non-lambda",
-			resourceTyp: "aurora",
-			mappings:    map[string]string{"resource_id": "id", "engine": "e"},
-			wantErrSub:  "field_mappings.version is required",
+			name:       "empty resource_id fails",
+			required:   map[string]string{"resource_id": "", "version": "v", "engine": "e"},
+			wantErrSub: "required_mappings.resource_id is required",
 		},
 		{
-			name:        "missing engine fails for non-lambda/non-eks/non-opensearch",
-			resourceTyp: "aurora",
-			mappings:    map[string]string{"resource_id": "id", "version": "v"},
-			wantErrSub:  "field_mappings.engine is required",
+			name:       "empty value in required_mappings fails",
+			required:   map[string]string{"resource_id": "id", "version": "v", "engine": ""},
+			wantErrSub: "required_mappings.engine must not be empty",
 		},
 		{
-			name:        "lambda is exempt from version and engine",
-			resourceTyp: "lambda",
-			mappings:    map[string]string{"resource_id": "id"},
+			name:       "duplicate key in both maps fails",
+			required:   map[string]string{"resource_id": "id", "version": "v"},
+			field:      map[string]string{"version": "v2"},
+			wantErrSub: `mapping "version" appears in both`,
 		},
 		{
-			name:        "eks is exempt from engine",
-			resourceTyp: "eks",
-			mappings:    map[string]string{"resource_id": "id", "version": "v"},
+			name: "minimal valid config (Lambda-style: resource_id only)",
+			required: map[string]string{
+				"resource_id": "externalId",
+			},
 		},
 		{
-			name:        "opensearch is exempt from engine",
-			resourceTyp: "opensearch",
-			mappings:    map[string]string{"resource_id": "id", "version": "v"},
+			name: "EKS-style: resource_id + version only (engine implicit)",
+			required: map[string]string{
+				"resource_id": "providerUniqueId",
+				"version":     "versionDetails.version",
+			},
 		},
 		{
-			name:        "all required mappings present",
-			resourceTyp: "aurora",
-			mappings:    map[string]string{"resource_id": "id", "version": "v", "engine": "e"},
+			name: "Aurora-style: resource_id + version + engine",
+			required: map[string]string{
+				"resource_id": "externalId",
+				"version":     "versionDetails.version",
+				"engine":      "typeFields.kind",
+			},
+			field: map[string]string{
+				"name":       "name",
+				"account_id": "cloudAccount.externalId",
+			},
 		},
 	}
 
@@ -339,11 +355,12 @@ func TestValidateConfig_FieldMappings(t *testing.T) {
 				Resources: []ResourceConfig{
 					{
 						ID:            "test",
-						Type:          tt.resourceTyp,
+						Type:          "aurora",
 						CloudProvider: "aws",
 						Inventory: InventoryConfig{
-							Source:        "wiz",
-							FieldMappings: tt.mappings,
+							Source:           "wiz",
+							RequiredMappings: tt.required,
+							FieldMappings:    tt.field,
 						},
 						EOL: EOLConfig{
 							Provider: "endoflife-date",

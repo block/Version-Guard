@@ -15,8 +15,24 @@ type ResourceConfig struct {
 	EOL           EOLConfig       `yaml:"eol"`
 }
 
-// InventoryConfig defines inventory source configuration
+// InventoryConfig defines inventory source configuration.
+//
+// Mappings are split into two YAML maps for clarity:
+//
+//   - RequiredMappings  — every entry MUST be present and non-empty;
+//     validated at config load time so YAML typos fail fast at startup
+//     instead of mid-scan. Each resource self-declares its required set
+//     so we don't carry hardcoded per-resource-type carve-outs in Go.
+//
+//   - FieldMappings     — optional mappings. Missing values produce
+//     empty strings on the typed Resource (for typed keys) or absent
+//     entries in Resource.Extra (for non-typed keys).
+//
+// A given key MUST appear in at most one of the two maps; the loader
+// rejects duplicates. The split is purely a UX/documentation aid for
+// people reading the YAML — the parser reads the union of both.
 type InventoryConfig struct {
+	RequiredMappings  map[string]string `yaml:"required_mappings"`
 	FieldMappings     map[string]string `yaml:"field_mappings"`
 	Source            string            `yaml:"source"`
 	NativeTypePattern string            `yaml:"native_type_pattern"`

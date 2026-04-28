@@ -1,13 +1,28 @@
 version: v1
-# field_mappings drives ALL CSV column lookups in the inventory parser.
-# Required keys: resource_id, version, engine
-#   - lambda is exempt from version + engine (runtime extracted from
-#     graphEntity.properties; engine is implicitly "aws-lambda").
-#   - eks and opensearch are exempt from engine (eks uses literal "eks";
-#     opensearch derives engine from the version).
-# Optional keys default to the canonical Wiz columns:
-#   name -> "name", account_id -> "cloudAccount.externalId",
-#   region -> "region", tags -> "tags".
+# Each resource defines two YAML maps for clarity:
+#
+#   required_mappings  — every entry MUST be present and non-empty.
+#                        Validated at config load time so YAML typos
+#                        fail fast at startup instead of mid-scan.
+#   field_mappings     — optional. Missing values produce empty
+#                        strings on the typed Resource (for typed
+#                        keys: tags) or absent entries in
+#                        Resource.Extra (for non-typed keys: name,
+#                        account_id, region, owner, ...).
+#
+# Typed keys (always end up on the typed Resource): resource_id,
+# version, engine, tags. Everything else flows into Resource.Extra
+# under its YAML logical name.
+#
+# A given key MUST appear in at most one of the two maps; the loader
+# rejects duplicates.
+#
+# Each resource self-declares what it needs:
+#   - aurora-*, elasticache-*, rds-*: resource_id + version + engine
+#   - eks:        resource_id + version (engine implicitly "eks")
+#   - opensearch: resource_id + version (engine derived from version)
+#   - lambda:     resource_id (version + engine derived from
+#                 graphEntity.properties JSON)
 resources:
   - id: aurora-postgresql
     type: aurora
@@ -15,13 +30,14 @@ resources:
     inventory:
       source: wiz
       native_type_pattern: "rds/AmazonAuroraPostgreSQL/cluster"
-      field_mappings:
+      required_mappings:
         resource_id: "externalId"
+        version: "versionDetails.version"
+        engine: "typeFields.kind"
+      field_mappings:
         name: "name"
         account_id: "cloudAccount.externalId"
         region: "region"
-        version: "versionDetails.version"
-        engine: "typeFields.kind"
         tags: "tags"
     eol:
       provider: endoflife-date
@@ -34,13 +50,14 @@ resources:
     inventory:
       source: wiz
       native_type_pattern: "rds/AmazonAuroraMySQL/cluster"
-      field_mappings:
+      required_mappings:
         resource_id: "externalId"
+        version: "versionDetails.version"
+        engine: "typeFields.kind"
+      field_mappings:
         name: "name"
         account_id: "cloudAccount.externalId"
         region: "region"
-        version: "versionDetails.version"
-        engine: "typeFields.kind"
         tags: "tags"
     eol:
       provider: endoflife-date
@@ -53,15 +70,16 @@ resources:
     inventory:
       source: wiz
       native_type_pattern: "cluster"
-      field_mappings:
+      required_mappings:
         # For EKS, Wiz's "externalId" column is an internal hash. Use
         # "providerUniqueId" so the resource ID is the cluster ARN.
         resource_id: "providerUniqueId"
+        version: "versionDetails.version"
+      field_mappings:
+        # engine is implicit ("eks") — EKS reports have no engine column.
         name: "name"
         account_id: "cloudAccount.externalId"
         region: "region"
-        version: "versionDetails.version"
-        # engine is implicit ("eks") — EKS reports have no engine column.
         tags: "tags"
     eol:
       provider: endoflife-date
@@ -74,13 +92,14 @@ resources:
     inventory:
       source: wiz
       native_type_pattern: "elastiCache/*/cluster"
-      field_mappings:
+      required_mappings:
         resource_id: "externalId"
+        version: "versionDetails.version"
+        engine: "typeFields.kind"
+      field_mappings:
         name: "name"
         account_id: "cloudAccount.externalId"
         region: "region"
-        version: "versionDetails.version"
-        engine: "typeFields.kind"
         tags: "tags"
     eol:
       provider: endoflife-date
@@ -93,13 +112,14 @@ resources:
     inventory:
       source: wiz
       native_type_pattern: "elasticSearchService|OpenSearch Domain"
-      field_mappings:
+      required_mappings:
         resource_id: "externalId"
+        version: "versionDetails.version"
+      field_mappings:
+        # engine is derived from the version (Elasticsearch <= 7.x vs OpenSearch).
         name: "name"
         account_id: "cloudAccount.externalId"
         region: "region"
-        version: "versionDetails.version"
-        # engine is derived from the version (Elasticsearch <= 7.x vs OpenSearch).
         tags: "tags"
     eol:
       provider: endoflife-date
@@ -112,13 +132,14 @@ resources:
     inventory:
       source: wiz
       native_type_pattern: "rds/MySQL/instance"
-      field_mappings:
+      required_mappings:
         resource_id: "externalId"
+        version: "versionDetails.version"
+        engine: "typeFields.kind"
+      field_mappings:
         name: "name"
         account_id: "cloudAccount.externalId"
         region: "region"
-        version: "versionDetails.version"
-        engine: "typeFields.kind"
         tags: "tags"
     eol:
       provider: endoflife-date
@@ -131,13 +152,14 @@ resources:
     inventory:
       source: wiz
       native_type_pattern: "rds/PostgreSQL/instance"
-      field_mappings:
+      required_mappings:
         resource_id: "externalId"
+        version: "versionDetails.version"
+        engine: "typeFields.kind"
+      field_mappings:
         name: "name"
         account_id: "cloudAccount.externalId"
         region: "region"
-        version: "versionDetails.version"
-        engine: "typeFields.kind"
         tags: "tags"
     eol:
       provider: endoflife-date
@@ -150,13 +172,14 @@ resources:
     inventory:
       source: wiz
       native_type_pattern: "lambda"
-      field_mappings:
+      required_mappings:
+        # version (runtime) and engine are extracted from
+        # graphEntity.properties JSON, not from individual columns.
         resource_id: "externalId"
+      field_mappings:
         name: "name"
         account_id: "cloudAccount.externalId"
         region: "region"
-        # version (runtime) and engine are extracted from
-        # graphEntity.properties JSON, not from individual columns.
         tags: "tags"
     eol:
       provider: endoflife-date

@@ -622,6 +622,66 @@ func TestParseResourceRow_NoExtrasWhenOnlyTypedKeysMapped(t *testing.T) {
 		"Extra should be nil when only typed keys are mapped, so it omits from JSON")
 }
 
+// TestParseResourceRow_ReadsFromRequiredMappings verifies the parser
+// honors mappings declared in required_mappings the same as
+// field_mappings. The two maps are a UX/validation split, not a wire
+// format split — the parser sees the union.
+func TestParseResourceRow_ReadsFromRequiredMappings(t *testing.T) {
+	cfg := config.ResourceConfig{
+		ID:            "aurora-postgresql",
+		Type:          "aurora",
+		CloudProvider: "aws",
+		Inventory: config.InventoryConfig{
+			RequiredMappings: map[string]string{
+				"resource_id": "externalId",
+				"version":     "versionDetails.version",
+				"engine":      "typeFields.kind",
+			},
+			FieldMappings: map[string]string{
+				"name":       "name",
+				"account_id": "cloudAccount.externalId",
+				"region":     "region",
+				"tags":       "tags",
+			},
+		},
+	}
+
+	source := NewGenericInventorySource(&Client{}, &cfg, nil, nil)
+
+	cols := columnIndex{
+		colHeaderExternalID:      0,
+		colHeaderName:            1,
+		colHeaderAccountID:       2,
+		colHeaderRegion:          3,
+		"versionDetails.version": 4,
+		"typeFields.kind":        5,
+		colHeaderTags:            6,
+	}
+
+	row := []string{
+		"arn:aws:rds:us-west-2:123:cluster:c1",
+		"c1",
+		"123456789012",
+		"us-west-2",
+		"15.3",
+		"AuroraPostgreSQL",
+		"[]",
+	}
+
+	resource, err := source.parseResourceRow(context.Background(), cols, row)
+	require.NoError(t, err)
+
+	// Typed fields read through required_mappings (resource_id,
+	// version, engine).
+	assert.Equal(t, "arn:aws:rds:us-west-2:123:cluster:c1", resource.ID)
+	assert.Equal(t, "15.3", resource.CurrentVersion)
+	assert.Equal(t, "aurora-postgresql", resource.Engine)
+	// Extras read through field_mappings.
+	assert.Equal(t, "c1", resource.Extra["name"])
+	assert.Equal(t, "123456789012", resource.Extra["account_id"])
+	assert.Equal(t, "us-west-2", resource.Extra["region"])
+}
+
 func TestGetRequiredColumns(t *testing.T) {
 	// In v2, name/account_id/region are user-declared YAML extras and
 	// only show up in the required column set when explicitly mapped.
