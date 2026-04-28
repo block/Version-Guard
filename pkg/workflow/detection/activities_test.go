@@ -42,6 +42,7 @@ func testResources() []*types.Resource {
 			ID:             "arn:aws:rds:us-east-1:123:cluster:prod-1",
 			Name:           "prod-1",
 			Type:           types.ResourceTypeAurora,
+			CloudProvider:  types.CloudProviderAWS,
 			Engine:         "aurora-mysql",
 			CurrentVersion: "5.6.10a",
 		},
@@ -49,6 +50,7 @@ func testResources() []*types.Resource {
 			ID:             "arn:aws:rds:us-east-1:123:cluster:prod-2",
 			Name:           "prod-2",
 			Type:           types.ResourceTypeAurora,
+			CloudProvider:  types.CloudProviderAWS,
 			Engine:         "aurora-mysql",
 			CurrentVersion: "8.0.35",
 		},
@@ -254,6 +256,32 @@ func TestDetectDrift_InlineFallback(t *testing.T) {
 	assert.Equal(t, 2, detect.FindingsCount)
 	assert.Empty(t, detect.FindingsBatchID, "no batch ID when using inline data")
 	assert.Len(t, detect.Findings, 2, "findings should be inline")
+}
+
+// TestDetectDrift_PropagatesCloudProvider locks in the fix for a bug
+// where the workflow path's Finding init silently dropped CloudProvider,
+// causing snapshot summaries to aggregate every finding under the
+// empty-string CloudProvider key in by_cloud_provider.
+func TestDetectDrift_PropagatesCloudProvider(t *testing.T) {
+	resources := testResources()
+	act := newTestActivities(resources, testEOLVersions())
+	env := newActivityEnv()
+	env.RegisterActivity(act.DetectDrift)
+
+	result, err := env.ExecuteActivity(act.DetectDrift, DetectInput{
+		Resources:         resources,
+		VersionLifecycles: testEOLVersions(),
+	})
+	require.NoError(t, err)
+
+	var detect DetectResult
+	require.NoError(t, result.Get(&detect))
+	require.Len(t, detect.Findings, 2)
+
+	for _, f := range detect.Findings {
+		assert.Equal(t, types.CloudProviderAWS, f.CloudProvider,
+			"finding %s lost its CloudProvider", f.ResourceID)
+	}
 }
 
 func TestDetectDrift_UnknownVersion(t *testing.T) {

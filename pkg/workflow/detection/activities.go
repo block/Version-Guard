@@ -230,6 +230,7 @@ func (a *Activities) DetectDrift(ctx context.Context, input DetectInput) (*Detec
 			Service:        resource.Service,
 			CloudAccountID: resource.CloudAccountID,
 			CloudRegion:    resource.CloudRegion,
+			CloudProvider:  resource.CloudProvider,
 			CurrentVersion: resource.CurrentVersion,
 			Engine:         resource.Engine,
 			Status:         status,
