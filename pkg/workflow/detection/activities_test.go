@@ -7,6 +7,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.temporal.io/sdk/testsuite"
 
+	"github.com/block/Version-Guard/pkg/eol"
 	eolmock "github.com/block/Version-Guard/pkg/eol/mock"
 	"github.com/block/Version-Guard/pkg/inventory"
 	invmock "github.com/block/Version-Guard/pkg/inventory/mock"
@@ -18,12 +19,16 @@ import (
 // newTestActivities creates an Activities instance with mock dependencies.
 func newTestActivities(resources []*types.Resource, eolVersions map[string]*types.VersionLifecycle) *Activities {
 	mockSource := &invmock.InventorySource{Resources: resources}
+	mockEOL := &eolmock.EOLProvider{Versions: eolVersions}
 	return NewActivities(
 		map[types.ResourceType]inventory.InventorySource{
 			types.ResourceTypeAurora:      mockSource,
 			types.ResourceTypeElastiCache: mockSource,
 		},
-		&eolmock.EOLProvider{Versions: eolVersions},
+		map[types.ResourceType]eol.Provider{
+			types.ResourceTypeAurora:      mockEOL,
+			types.ResourceTypeElastiCache: mockEOL,
+		},
 		policy.NewDefaultPolicy(),
 		memory.NewStore(),
 	)
@@ -116,7 +121,9 @@ func TestFetchInventory_SourceError(t *testing.T) {
 		map[types.ResourceType]inventory.InventorySource{
 			types.ResourceTypeAurora: errSource,
 		},
-		&eolmock.EOLProvider{},
+		map[types.ResourceType]eol.Provider{
+			types.ResourceTypeAurora: &eolmock.EOLProvider{},
+		},
 		policy.NewDefaultPolicy(),
 		memory.NewStore(),
 	)

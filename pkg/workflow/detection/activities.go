@@ -75,26 +75,36 @@ type MetricsResult struct {
 	Summary *types.ScanSummary
 }
 
-// Activities struct holds dependencies for all activities
+// Activities struct holds dependencies for all activities.
+//
+// EOLProviders is keyed by the YAML config ID (e.g. "aurora-postgresql",
+// "lambda") because each Provider is bound to a single endoflife.date
+// product and schema at construction time. FetchEOLData routes to the
+// right Provider via the resource type carried on FetchEOLInput, so a
+// scan touching N resource types fans out across N Providers — each
+// hitting only its own product's cycles.
 type Activities struct {
 	InventorySources map[types.ResourceType]inventory.InventorySource
-	EOLProvider      eol.Provider
+	EOLProviders     map[types.ResourceType]eol.Provider
 	Policy           policy.VersionPolicy
 	Store            store.Store
 	DetectorFactory  func(types.ResourceType) (detector.Detector, error)
 	resourceCache    sync.Map
 }
 
-// NewActivities creates a new Activities instance with dependencies
+// NewActivities creates a new Activities instance with dependencies.
+// eolProviders MUST contain one entry per resource type the scan will
+// touch; FetchEOLData fails with an explicit error if a resource type's
+// provider is missing rather than silently producing UNKNOWN findings.
 func NewActivities(
 	inventorySources map[types.ResourceType]inventory.InventorySource,
-	eolProvider eol.Provider,
+	eolProviders map[types.ResourceType]eol.Provider,
 	policy policy.VersionPolicy,
 	store store.Store,
 ) *Activities {
 	return &Activities{
 		InventorySources: inventorySources,
-		EOLProvider:      eolProvider,
+		EOLProviders:     eolProviders,
 		Policy:           policy,
 		Store:            store,
 	}
@@ -155,7 +165,15 @@ func (a *Activities) FetchInventory(ctx context.Context, input FetchInventoryInp
 	return &InventoryResult{ResourceBatchID: input.ScanID}, nil
 }
 
-// FetchEOLData fetches EOL lifecycle information for all resource versions
+// FetchEOLData fetches EOL lifecycle information for all resource versions.
+//
+// The provider is selected by input.ResourceType — each Provider is
+// bound to a single endoflife.date product, so we MUST use the one
+// matching this resource type. A missing entry is a configuration bug
+// (the server-side detector loop should have created a provider for
+// every configured resource), so we fail loud rather than silently
+// returning UNKNOWN findings — that was the symptom of the regression
+// fixed in this commit.
 func (a *Activities) FetchEOLData(ctx context.Context, input FetchEOLInput) (*EOLResult, error) {
 	resources, err := a.loadResources(input.ResourceBatchID, input.Resources)
 	if err != nil {
@@ -163,7 +181,12 @@ func (a *Activities) FetchEOLData(ctx context.Context, input FetchEOLInput) (*EO
 	}
 
 	logger := activity.GetLogger(ctx)
-	logger.Info("Fetching EOL data", "resourceCount", len(resources))
+	logger.Info("Fetching EOL data", "resourceCount", len(resources), "resourceType", input.ResourceType)
+
+	provider, ok := a.EOLProviders[input.ResourceType]
+	if !ok {
+		return nil, fmt.Errorf("no EOL provider configured for resource type %q", input.ResourceType)
+	}
 
 	lifecycles := make(map[string]*types.VersionLifecycle)
 
@@ -176,7 +199,7 @@ func (a *Activities) FetchEOLData(ctx context.Context, input FetchEOLInput) (*EO
 		}
 		seen[key] = true
 
-		lifecycle, err := a.EOLProvider.GetVersionLifecycle(ctx, resource.Engine, resource.CurrentVersion)
+		lifecycle, err := provider.GetVersionLifecycle(ctx, resource.Engine, resource.CurrentVersion)
 		if err != nil {
 			logger.Warn("Failed to get lifecycle", "engine", resource.Engine, "version", resource.CurrentVersion, "error", err)
 			// Continue with other versions

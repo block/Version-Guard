@@ -321,19 +321,18 @@ func (s *ServerCLI) Run(_ *kong.Context) error {
 
 	// Register activities
 	// Detection workflow activities
-	// Use first available EOL provider (all resources use endoflife.date which supports multiple engines)
-	var firstEOLProvider eol.Provider
-	for _, provider := range eolProviders {
-		firstEOLProvider = provider
-		break
-	}
-	if firstEOLProvider == nil {
+	if len(eolProviders) == 0 {
 		return fmt.Errorf("no EOL providers configured")
 	}
 
+	// Pass the per-resource-type provider map. FetchEOLData routes to the
+	// correct Provider via FetchEOLInput.ResourceType. Picking a single
+	// provider here would cause every other resource type's queries to
+	// hit the wrong endoflife.date product and silently produce UNKNOWN
+	// findings.
 	detectionActivities := detection.NewActivities(
 		invSources,
-		firstEOLProvider,
+		eolProviders,
 		policyEngine,
 		st,
 	)
