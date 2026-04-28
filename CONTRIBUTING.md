@@ -182,7 +182,10 @@ If you prefer to add resources manually (or AI skills are not available), follow
 
 3. **Create an EOL provider** (or use existing):
    ```go
-   // pkg/eol/aws/your_resource.go or use endoflife.date
+   // Most resources use the existing endoflife.date provider; declare
+   // eol.product (and eol.schema for non-standard semantics) in YAML.
+   // Add a new SchemaAdapter in pkg/eol/endoflife/adapters.go only if
+   // a product needs a non-standard endoflife.date interpretation.
    ```
 
 4. **Create a detector** in `pkg/detector/your_resource/`:

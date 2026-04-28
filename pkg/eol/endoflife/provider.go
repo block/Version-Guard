@@ -92,15 +92,12 @@ func (p *Provider) Engines() []string {
 }
 
 // GetVersionLifecycle retrieves lifecycle information for a specific version
-// of the provider's product. The engine argument is used only for
-// version-string normalization (stripping kubernetes-specific prefixes);
-// product resolution comes from p.product, set at construction time.
+// of the provider's product. The engine argument is preserved as a label
+// on the returned VersionLifecycle for downstream display; product
+// resolution comes from p.product, set at construction time.
 func (p *Provider) GetVersionLifecycle(ctx context.Context, engine, version string) (*types.VersionLifecycle, error) {
-	// Normalize engine name (used by normalizeVersion only)
 	engine = strings.ToLower(engine)
-
-	// Normalize version format
-	version = normalizeVersion(engine, version)
+	version = strings.TrimSpace(version)
 
 	// Fetch all versions
 	versions, err := p.ListAllVersions(ctx, engine)
@@ -114,13 +111,13 @@ func (p *Provider) GetVersionLifecycle(ctx context.Context, engine, version stri
 	var bestMatch *types.VersionLifecycle
 	bestMatchLen := 0
 	for _, v := range versions {
-		normalizedV := normalizeVersion(engine, v.Version)
-		if normalizedV == version {
+		cycleVersion := strings.TrimSpace(v.Version)
+		if cycleVersion == version {
 			return v, nil
 		}
-		if strings.HasPrefix(version, normalizedV+".") && len(normalizedV) > bestMatchLen {
+		if strings.HasPrefix(version, cycleVersion+".") && len(cycleVersion) > bestMatchLen {
 			bestMatch = v
-			bestMatchLen = len(normalizedV)
+			bestMatchLen = len(cycleVersion)
 		}
 	}
 	if bestMatch != nil {
@@ -245,21 +242,6 @@ func (p *Provider) convertCycle(engine, product string, cycle *ProductCycle) (*t
 	lifecycle.Source = p.Name()
 	lifecycle.FetchedAt = time.Now()
 	return lifecycle, nil
-}
-
-// normalizeVersion normalizes version strings for comparison
-func normalizeVersion(engine, version string) string {
-	version = strings.TrimSpace(version)
-
-	// Handle kubernetes/EKS versions
-	if engine == "kubernetes" || engine == "k8s" || engine == "eks" {
-		version = strings.TrimPrefix(version, "k8s-")
-		version = strings.TrimPrefix(version, "kubernetes-")
-		return version
-	}
-
-	// For other engines, return as-is
-	return version
 }
 
 // anyToDateString extracts a date string from an any-typed field.
