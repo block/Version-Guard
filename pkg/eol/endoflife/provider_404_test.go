@@ -19,7 +19,7 @@ func TestProvider_GetVersionLifecycle_Product404(t *testing.T) {
 		},
 	}
 
-	provider := NewProvider(mockClient, 0, nil)
+	provider := NewProvider(mockClient, "amazon-aurora-mysql", 0, nil)
 
 	// Try to get lifecycle for aurora-mysql (which returns 404)
 	lifecycle, err := provider.GetVersionLifecycle(context.Background(), "aurora-mysql", "8.0.35")
@@ -45,7 +45,7 @@ func TestProvider_GetVersionLifecycle_Product404_ActualErrorMessage(t *testing.T
 		},
 	}
 
-	provider := NewProvider(mockClient, 0, nil)
+	provider := NewProvider(mockClient, "amazon-aurora-mysql", 0, nil)
 
 	// Try to get lifecycle for aurora-mysql
 	lifecycle, err := provider.GetVersionLifecycle(context.Background(), "aurora-mysql", "8.0.35")
@@ -67,7 +67,7 @@ func TestProvider_ListAllVersions_Product404(t *testing.T) {
 		},
 	}
 
-	provider := NewProvider(mockClient, 0, nil)
+	provider := NewProvider(mockClient, "amazon-aurora-mysql", 0, nil)
 
 	// Try to list all versions for aurora-mysql
 	versions, err := provider.ListAllVersions(context.Background(), "aurora-mysql")
@@ -110,7 +110,7 @@ func TestProvider_GetVersionLifecycle_NonProductErrors(t *testing.T) {
 				},
 			}
 
-			provider := NewProvider(mockClient, 0, nil)
+			provider := NewProvider(mockClient, "amazon-aurora-mysql", 0, nil)
 
 			_, err := provider.GetVersionLifecycle(context.Background(), "aurora-mysql", "8.0.35")
 

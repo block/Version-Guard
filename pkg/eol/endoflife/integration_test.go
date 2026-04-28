@@ -64,9 +64,9 @@ func TestProviderRealAPIIntegration(t *testing.T) {
 		t.Skip("Skipping integration test in short mode")
 	}
 
-	// Create provider with real client
+	// Create provider with real client (one provider per product)
 	client := NewRealHTTPClient()
-	provider := NewProvider(client, 1*time.Hour, nil)
+	provider := NewProvider(client, "amazon-eks", 1*time.Hour, nil)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -124,7 +124,7 @@ func TestCachingRealAPI(t *testing.T) {
 	}
 
 	client := NewRealHTTPClient()
-	provider := NewProvider(client, 1*time.Hour, nil)
+	provider := NewProvider(client, "amazon-eks", 1*time.Hour, nil)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
