@@ -168,6 +168,80 @@ func TestClient_GetReportData_Caching(t *testing.T) {
 	mockWizClient.AssertExpectations(t)
 }
 
+// TestClient_GetReportData_PerReportIDCache pins the contract that calls
+// for different reportIDs do NOT evict each other's cache entries. The
+// Version-Guard server fans out one detection workflow per resource type,
+// each calling GetReportData with a different reportID through the same
+// shared *Client; a single-slot cache thrashes to ~0% hit rate during
+// parallel scans.
+func TestClient_GetReportData_PerReportIDCache(t *testing.T) {
+	ctx := context.Background()
+
+	mockWizClient := new(MockWizClient)
+	mockWizClient.On("GetAccessToken", mock.Anything).Return(WizAPIFixtures.AccessToken, nil)
+	mockWizClient.On("GetReport", mock.Anything, mock.Anything, "report-A").
+		Return(WizAPIFixtures.AuroraReport, nil).Once()
+	mockWizClient.On("GetReport", mock.Anything, mock.Anything, "report-B").
+		Return(WizAPIFixtures.AuroraReport, nil).Once()
+	// Each download mock is configured Once() — the test fails if either
+	// is called twice (the symptom of cache eviction).
+	mockWizClient.On("DownloadReport", mock.Anything, mock.Anything).
+		Return(NewMockReadCloser(WizAPIFixtures.AuroraCSVData), nil).Once()
+	mockWizClient.On("DownloadReport", mock.Anything, mock.Anything).
+		Return(NewMockReadCloser(WizAPIFixtures.AuroraCSVData), nil).Once()
+
+	client := NewClient(mockWizClient, time.Hour)
+
+	// Prime both cache slots.
+	_, err := client.GetReportData(ctx, "report-A")
+	require.NoError(t, err)
+	_, err = client.GetReportData(ctx, "report-B")
+	require.NoError(t, err)
+
+	// Subsequent calls in alternating order — should be 100% cache hits.
+	for i := 0; i < 10; i++ {
+		_, err = client.GetReportData(ctx, "report-A")
+		require.NoError(t, err)
+		_, err = client.GetReportData(ctx, "report-B")
+		require.NoError(t, err)
+	}
+
+	mockWizClient.AssertExpectations(t)
+}
+
+// TestClient_GetReportData_SingleflightCollapsesConcurrent verifies that
+// concurrent fetches for the same reportID collapse onto a single HTTP
+// fetch via singleflight, while remaining correct under the race detector.
+func TestClient_GetReportData_SingleflightCollapsesConcurrent(t *testing.T) {
+	ctx := context.Background()
+
+	mockWizClient := new(MockWizClient)
+	// Mock body returns a fresh ReadCloser per call. .Once() on the
+	// downstream mocks asserts at most one HTTP fetch happens despite
+	// many concurrent callers.
+	mockWizClient.On("GetAccessToken", mock.Anything).Return(WizAPIFixtures.AccessToken, nil).Once()
+	mockWizClient.On("GetReport", mock.Anything, mock.Anything, "concurrent-report").
+		Return(WizAPIFixtures.AuroraReport, nil).Once()
+	mockWizClient.On("DownloadReport", mock.Anything, mock.Anything).
+		Return(NewMockReadCloser(WizAPIFixtures.AuroraCSVData), nil).Once()
+
+	client := NewClient(mockWizClient, time.Hour)
+
+	const goroutines = 16
+	errs := make(chan error, goroutines)
+	for i := 0; i < goroutines; i++ {
+		go func() {
+			_, err := client.GetReportData(ctx, "concurrent-report")
+			errs <- err
+		}()
+	}
+	for i := 0; i < goroutines; i++ {
+		require.NoError(t, <-errs)
+	}
+
+	mockWizClient.AssertExpectations(t)
+}
+
 func TestClient_GetReportData_CacheExpiry(t *testing.T) {
 	ctx := context.Background()
 
