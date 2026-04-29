@@ -141,7 +141,9 @@ export WIZ_CLIENT_SECRET_SECRET=your-client-secret
 export WIZ_REPORT_IDS='{
   "aurora-mysql":"your-aurora-report-id",
   "eks":"your-eks-report-id",
-  "elasticache-redis":"your-elasticache-report-id"
+  "elasticache-redis":"your-elasticache-report-id",
+  "elasticache-valkey":"your-elasticache-report-id",
+  "elasticache-memcached":"your-elasticache-report-id"
 }'
 
 # Optional: Configure S3 snapshots
@@ -179,7 +181,7 @@ cp .env.example .env
 # Edit .env and set your Wiz credentials:
 WIZ_CLIENT_ID_SECRET=your-client-id-here
 WIZ_CLIENT_SECRET_SECRET=your-client-secret-here
-WIZ_REPORT_IDS={"aurora-mysql":"report-id","eks":"report-id","elasticache-redis":"report-id"}
+WIZ_REPORT_IDS={"aurora-mysql":"report-id","eks":"report-id","elasticache-redis":"report-id","elasticache-valkey":"report-id","elasticache-memcached":"report-id"}
 ```
 
 **2. Start the stack:**
@@ -509,7 +511,7 @@ WIZ_CLIENT_SECRET_SECRET=your-wiz-client-secret-here
 WIZ_CACHE_TTL_HOURS=1
 
 # Wiz Saved Report IDs
-WIZ_REPORT_IDS='{"aurora-mysql":"your-report-id","eks":"your-report-id","elasticache-redis":"your-report-id"}'
+WIZ_REPORT_IDS='{"aurora-mysql":"your-report-id","eks":"your-report-id","elasticache-redis":"your-report-id","elasticache-valkey":"your-report-id","elasticache-memcached":"your-report-id"}'
 
 # AWS Configuration
 AWS_REGION=us-west-2

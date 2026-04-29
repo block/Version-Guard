@@ -152,7 +152,9 @@ export WIZ_CLIENT_SECRET_SECRET="your-client-secret"
 export WIZ_REPORT_IDS='{
   "aurora-mysql":"your-aurora-mysql-report-id",
   "eks":"your-eks-report-id",
-  "elasticache-redis":"your-elasticache-report-id"
+  "elasticache-redis":"your-elasticache-report-id",
+  "elasticache-valkey":"your-elasticache-report-id",
+  "elasticache-memcached":"your-elasticache-report-id"
 }'
 docker compose up --build
 ```
@@ -188,7 +190,7 @@ make dev
 # Or with real Wiz inventory (requires credentials)
 export WIZ_CLIENT_ID_SECRET="your-client-id"
 export WIZ_CLIENT_SECRET_SECRET="your-client-secret"
-export WIZ_REPORT_IDS='{"aurora-mysql":"report-id","eks":"report-id","elasticache-redis":"report-id"}'
+export WIZ_REPORT_IDS='{"aurora-mysql":"report-id","eks":"report-id","elasticache-redis":"report-id","elasticache-valkey":"report-id","elasticache-memcached":"report-id"}'
 make dev
 ```
 
@@ -373,7 +375,9 @@ Version Guard uses a single JSON map to configure all Wiz report IDs:
 export WIZ_REPORT_IDS='{
   "aurora-mysql": "your-aurora-mysql-report-id",
   "eks": "your-eks-report-id",
-  "elasticache-redis": "your-elasticache-report-id"
+  "elasticache-redis": "your-elasticache-report-id",
+  "elasticache-valkey": "your-elasticache-report-id",
+  "elasticache-memcached": "your-elasticache-report-id"
 }'
 ```
 

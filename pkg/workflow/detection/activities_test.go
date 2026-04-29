@@ -86,12 +86,16 @@ func TestFetchInventory_WithScanID_CachesAndReturnsBatchID(t *testing.T) {
 	var inv InventoryResult
 	require.NoError(t, result.Get(&inv))
 
-	// Should return batch ID, not inline resources
-	assert.Equal(t, "scan-123", inv.ResourceBatchID)
+	// Should return batch ID composed of ScanID + ResourceType — the
+	// orchestrator fans out one detection workflow per resource type
+	// and they all share a ScanID, so the cache key must include the
+	// type to avoid parallel workflows clobbering each other.
+	expectedBatchID := "scan-123:" + string(types.ResourceTypeAurora)
+	assert.Equal(t, expectedBatchID, inv.ResourceBatchID)
 	assert.Empty(t, inv.Resources)
 
-	// Verify resources are in cache
-	cached, ok := act.resourceCache.Load("scan-123")
+	// Verify resources are in cache under the composed key
+	cached, ok := act.resourceCache.Load(expectedBatchID)
 	require.True(t, ok, "resources should be stored in cache")
 	assert.Len(t, cached.([]*types.Resource), 2)
 }
@@ -481,7 +485,8 @@ func TestCacheLifecycle_EndToEnd(t *testing.T) {
 	require.NoError(t, err)
 	var inv InventoryResult
 	require.NoError(t, r1.Get(&inv))
-	assert.Equal(t, "e2e-scan", inv.ResourceBatchID)
+	expectedBatchID := "e2e-scan:" + string(types.ResourceTypeAurora)
+	assert.Equal(t, expectedBatchID, inv.ResourceBatchID)
 
 	// Step 2: FetchEOLData reads from resource cache
 	env2 := newActivityEnv()
@@ -508,7 +513,7 @@ func TestCacheLifecycle_EndToEnd(t *testing.T) {
 	assert.Equal(t, 2, detect.FindingsCount)
 
 	// Resource cache should be gone
-	_, ok := act.resourceCache.Load("e2e-scan")
+	_, ok := act.resourceCache.Load(expectedBatchID)
 	assert.False(t, ok, "resource cache should be cleaned up after DetectDrift")
 
 	// Findings cache should exist

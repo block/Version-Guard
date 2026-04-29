@@ -161,8 +161,15 @@ func (a *Activities) FetchInventory(ctx context.Context, input FetchInventoryInp
 		return &InventoryResult{Resources: resources}, nil
 	}
 
-	a.resourceCache.Store(input.ScanID, resources)
-	return &InventoryResult{ResourceBatchID: input.ScanID}, nil
+	// Cache key must include the resource type — the orchestrator
+	// fans out one detection workflow per resource type and they all
+	// share the same ScanID. Keying solely on ScanID caused parallel
+	// workflows to overwrite each other's resources, so e.g. the
+	// memcached detection would read the valkey resources back and
+	// the per-type counts ended up scrambled.
+	batchID := input.ScanID + ":" + string(input.ResourceType)
+	a.resourceCache.Store(batchID, resources)
+	return &InventoryResult{ResourceBatchID: batchID}, nil
 }
 
 // FetchEOLData fetches EOL lifecycle information for all resource versions.
