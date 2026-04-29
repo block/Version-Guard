@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
+	"golang.org/x/sync/singleflight"
 )
 
 const (
@@ -39,21 +40,29 @@ type Report struct {
 	LastRun     time.Time
 }
 
-// Client wraps the Wiz API client with caching and CSV parsing
+// Client wraps the Wiz API client with caching and CSV parsing.
+//
+// The cache is per-reportID — Version-Guard fans out one detection
+// workflow per resource type and they all share a single *Client (see
+// cmd/server/main.go). A single-slot cache evicts on every reportID
+// switch, dropping the effective hit rate to ~0% during parallel
+// scans; per-key caching plus a singleflight group lets concurrent
+// callers for the *same* reportID collapse onto one HTTP fetch
+// without serializing fetches across *different* reportIDs.
 //
 //nolint:govet // field alignment sacrificed for readability
 type Client struct {
-	mu           sync.RWMutex
-	cachedReport *cachedReport
-	wizClient    WizClient
-	cacheTTL     time.Duration
+	mu        sync.RWMutex
+	cache     map[string]*cachedReport // key: reportID
+	wizClient WizClient
+	cacheTTL  time.Duration
+	group     singleflight.Group
 }
 
 //nolint:govet // field alignment sacrificed for readability
 type cachedReport struct {
 	data      [][]string
 	fetchedAt time.Time
-	reportID  string
 }
 
 // NewClient creates a new Wiz client with caching
@@ -65,54 +74,77 @@ func NewClient(wizClient WizClient, cacheTTL time.Duration) *Client {
 	return &Client{
 		wizClient: wizClient,
 		cacheTTL:  cacheTTL,
+		cache:     make(map[string]*cachedReport),
 	}
 }
 
-// GetReportData fetches and parses a Wiz saved report, returning CSV rows
-// The report is cached for cacheTTL duration to avoid excessive API calls
+// GetReportData fetches and parses a Wiz saved report, returning CSV
+// rows. Each reportID is cached independently for cacheTTL duration so
+// parallel scans across different resource types don't evict each
+// other's data.
 func (c *Client) GetReportData(ctx context.Context, reportID string) ([][]string, error) {
-	// Check cache first
+	// Fast path: read-locked cache lookup.
+	if rows, ok := c.lookup(reportID); ok {
+		return rows, nil
+	}
+
+	// Cache miss or expired — singleflight collapses concurrent
+	// fetches for the same reportID onto a single HTTP call. Different
+	// reportIDs proceed in parallel because singleflight keys on
+	// reportID and the HTTP fetch itself holds no lock.
+	result, err, _ := c.group.Do(reportID, func() (interface{}, error) {
+		// Re-check the cache inside the singleflight slot — a previous
+		// caller in the same flight may have already populated it.
+		if rows, ok := c.lookup(reportID); ok {
+			return rows, nil
+		}
+		return c.fetchAndCache(ctx, reportID)
+	})
+	if err != nil {
+		return nil, err
+	}
+	rows, ok := result.([][]string)
+	if !ok {
+		return nil, errors.Errorf("wiz cache returned unexpected type for report %s", reportID)
+	}
+	return rows, nil
+}
+
+// lookup returns cached rows for reportID if still within TTL.
+func (c *Client) lookup(reportID string) ([][]string, bool) {
 	c.mu.RLock()
-	if c.cachedReport != nil &&
-		c.cachedReport.reportID == reportID &&
-		time.Since(c.cachedReport.fetchedAt) < c.cacheTTL {
-		data := c.cachedReport.data
-		c.mu.RUnlock()
-		return data, nil
+	defer c.mu.RUnlock()
+	cached, ok := c.cache[reportID]
+	if !ok {
+		return nil, false
 	}
-	c.mu.RUnlock()
-
-	// Cache miss or expired - fetch new data
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	// Double-check in case another goroutine just fetched
-	if c.cachedReport != nil &&
-		c.cachedReport.reportID == reportID &&
-		time.Since(c.cachedReport.fetchedAt) < c.cacheTTL {
-		return c.cachedReport.data, nil
+	if time.Since(cached.fetchedAt) >= c.cacheTTL {
+		return nil, false
 	}
+	return cached.data, true
+}
 
-	// Fetch access token
+// fetchAndCache performs the GraphQL + download + CSV-parse pipeline
+// for one reportID and writes the parsed rows into the cache before
+// returning. Called from inside a singleflight slot, so at most one
+// goroutine per reportID is here at a time.
+func (c *Client) fetchAndCache(ctx context.Context, reportID string) ([][]string, error) {
 	accessToken, err := c.wizClient.GetAccessToken(ctx)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to get Wiz access token")
 	}
 
-	// Get report metadata
 	report, err := c.wizClient.GetReport(ctx, accessToken, reportID)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to get Wiz report %s", reportID)
 	}
 
-	// Download report CSV
 	resp, err := c.wizClient.DownloadReport(ctx, report.DownloadURL)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to download Wiz report %s", reportID)
 	}
 	defer resp.Close()
 
-	// Parse CSV
 	csvReader := csv.NewReader(resp)
 	rows, err := csvReader.ReadAll()
 	if err != nil {
@@ -121,12 +153,12 @@ func (c *Client) GetReportData(ctx context.Context, reportID string) ([][]string
 
 	// Note: Empty reports (header only) are valid - the inventory source will filter them
 
-	// Cache the result
-	c.cachedReport = &cachedReport{
-		reportID:  reportID,
+	c.mu.Lock()
+	c.cache[reportID] = &cachedReport{
 		data:      rows,
 		fetchedAt: time.Now(),
 	}
+	c.mu.Unlock()
 
 	return rows, nil
 }
