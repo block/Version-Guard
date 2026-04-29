@@ -312,6 +312,43 @@ func TestDefaultPolicy_GetRecommendation_Red(t *testing.T) {
 	}
 }
 
+// TestDefaultPolicy_GetRecommendation_YellowExtendedSupport_AllRecommendationsExtended
+// pins the fix for the "every supported cycle is itself in extended
+// support" case. The naive code path would suggest "Upgrade to <X> to
+// avoid extended support costs" while <X> is still in extended
+// support — a false promise. RecommendedNonExtendedVersion is empty
+// in this scenario; the policy must drop the concrete target and
+// fall back to the neutral "supported version" wording.
+func TestDefaultPolicy_GetRecommendation_YellowExtendedSupport_AllRecommendationsExtended(t *testing.T) {
+	policy := NewDefaultPolicy()
+
+	resource := &types.Resource{
+		Engine:         "redis",
+		CurrentVersion: "5.0",
+	}
+	lifecycle := &types.VersionLifecycle{
+		Version:                       "5.0",
+		Engine:                        "redis",
+		IsSupported:                   true,
+		IsExtendedSupport:             true,
+		RecommendedVersion:            "6.2", // a newer cycle, but
+		RecommendedNonExtendedVersion: "",    // ...also in extended support
+	}
+
+	recommendation := policy.GetRecommendation(resource, lifecycle, types.StatusYellow)
+
+	// Must NOT suggest "Upgrade to redis 6.2 to avoid extended support costs"
+	// because 6.2 itself is in extended support — the upgrade wouldn't
+	// actually avoid the costs.
+	if contains(recommendation, "to redis 6.2") {
+		t.Errorf("recommendation surfaced an extended-support target as cost-avoidance: %q", recommendation)
+	}
+	expected := "Upgrade to a supported version of redis to avoid extended support costs"
+	if recommendation != expected {
+		t.Errorf("Expected fallback recommendation %q, got: %q", expected, recommendation)
+	}
+}
+
 // TestDefaultPolicy_GetRecommendation_Yellow_SuppressesSelfRecommendation
 // pins the behavior where the EOL provider reports the same cycle as
 // both the user's current version and the recommendation (e.g., the

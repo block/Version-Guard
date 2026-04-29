@@ -212,29 +212,37 @@ func (p *DefaultPolicy) GetRecommendation(resource *types.Resource, lifecycle *t
 	}
 }
 
-// usableRecommendation returns the EOL provider's RecommendedVersion if
-// it's both non-empty AND different from the resource's current cycle.
-// Recommending the same cycle the resource is already on (which can
-// happen on the YELLOW "approaching EOL" path when the user is
-// already on the newest supported cycle) would produce a confusing
-// "Upgrade to X" message that's effectively a no-op.
-func usableRecommendation(resource *types.Resource, lifecycle *types.VersionLifecycle) string {
-	if lifecycle.RecommendedVersion == "" {
+// usableUpgradeTarget returns candidate as the suggested upgrade
+// target if it's both non-empty AND different from the resource's
+// current cycle. Recommending the same cycle the resource is already
+// on (which can happen on the YELLOW approaching-EOL path when the
+// user is already on the newest supported cycle) would produce a
+// confusing "Upgrade to X" message that's effectively a no-op, so we
+// fall through to the generic wording instead.
+//
+// Callers pass the right candidate for their context:
+//
+//   - getRedRecommendation and the YELLOW approaching-EOL branch use
+//     lifecycle.RecommendedVersion (extended-support fallback allowed —
+//     a target in extended support is still better than no target).
+//   - The YELLOW IsExtendedSupport branch uses
+//     lifecycle.RecommendedNonExtendedVersion. Suggesting another
+//     extended-support cycle there would falsely promise the upgrade
+//     "avoids extended support costs" when it doesn't.
+func usableUpgradeTarget(resource *types.Resource, lifecycle *types.VersionLifecycle, candidate string) string {
+	if candidate == "" {
 		return ""
 	}
-	if lifecycle.RecommendedVersion == lifecycle.Version ||
-		lifecycle.RecommendedVersion == resource.CurrentVersion {
+	if candidate == lifecycle.Version || candidate == resource.CurrentVersion {
 		return ""
 	}
-	return lifecycle.RecommendedVersion
+	return candidate
 }
 
 func (p *DefaultPolicy) getRedRecommendation(resource *types.Resource, lifecycle *types.VersionLifecycle) string {
-	// Suggest an upgrade target based on the EOL provider's view of
-	// the latest supported cycle for this product. Empty (or equal
-	// to the current version) means the provider couldn't determine
-	// a useful different target — fall back to a generic message.
-	if rec := usableRecommendation(resource, lifecycle); rec != "" {
+	// Past EOL — any supported cycle restores support, so prefer the
+	// general RecommendedVersion (extended-support fallback included).
+	if rec := usableUpgradeTarget(resource, lifecycle, lifecycle.RecommendedVersion); rec != "" {
 		return fmt.Sprintf("Upgrade to %s %s immediately to restore support",
 			resource.Engine, rec)
 	}
@@ -243,17 +251,22 @@ func (p *DefaultPolicy) getRedRecommendation(resource *types.Resource, lifecycle
 }
 
 func (p *DefaultPolicy) getYellowRecommendation(resource *types.Resource, lifecycle *types.VersionLifecycle) string {
-	rec := usableRecommendation(resource, lifecycle)
-
 	if lifecycle.IsExtendedSupport {
-		if rec != "" {
+		// "Avoid extended support costs" requires a target that is
+		// itself NOT in extended support. RecommendedNonExtendedVersion
+		// is empty when every supported cycle for this product is
+		// already in extended support — fall back to the neutral
+		// wording rather than over-promising cost relief.
+		if rec := usableUpgradeTarget(resource, lifecycle, lifecycle.RecommendedNonExtendedVersion); rec != "" {
 			return fmt.Sprintf("Upgrade to %s %s to avoid extended support costs",
 				resource.Engine, rec)
 		}
 		return fmt.Sprintf("Upgrade to a supported version of %s to avoid extended support costs", resource.Engine)
 	}
 
-	if rec != "" {
+	// Approaching EOL — any supported target buys the user runway, so
+	// the general RecommendedVersion is fine here.
+	if rec := usableUpgradeTarget(resource, lifecycle, lifecycle.RecommendedVersion); rec != "" {
 		return fmt.Sprintf("Plan upgrade to %s %s within the next 90 days",
 			resource.Engine, rec)
 	}

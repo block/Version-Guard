@@ -596,6 +596,67 @@ func TestLatestSupportedVersion(t *testing.T) {
 	}
 }
 
+// TestLatestNonExtendedSupportedVersion exercises the strict variant
+// used by the YELLOW IsExtendedSupport path. Empty result is a
+// meaningful signal — see provider.go's doc comment — so the
+// "all-extended" case is the most important table entry here.
+func TestLatestNonExtendedSupportedVersion(t *testing.T) {
+	//nolint:govet // field alignment sacrificed for table-test readability
+	tests := []struct {
+		name string
+		in   []*types.VersionLifecycle
+		want string
+	}{
+		{
+			name: "picks newest non-extended supported cycle",
+			in: []*types.VersionLifecycle{
+				{Version: "17", IsSupported: true, IsExtendedSupport: false},
+				{Version: "16", IsSupported: true, IsExtendedSupport: false},
+				{Version: "14", IsSupported: true, IsExtendedSupport: true},
+			},
+			want: "17",
+		},
+		{
+			name: "skips extended-support cycles even if newer",
+			in: []*types.VersionLifecycle{
+				{Version: "17", IsSupported: true, IsExtendedSupport: true},
+				{Version: "16", IsSupported: true, IsExtendedSupport: false},
+			},
+			want: "16",
+		},
+		{
+			name: "all supported cycles in extended support → empty (signals fallback)",
+			in: []*types.VersionLifecycle{
+				{Version: "13", IsSupported: true, IsExtendedSupport: true},
+				{Version: "12", IsSupported: true, IsExtendedSupport: true},
+				{Version: "11", IsSupported: false},
+			},
+			want: "",
+		},
+		{
+			name: "no supported cycles at all → empty",
+			in: []*types.VersionLifecycle{
+				{Version: "12", IsSupported: false},
+				{Version: "11", IsSupported: false},
+			},
+			want: "",
+		},
+		{
+			name: "nil/empty slice → empty",
+			in:   nil,
+			want: "",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := latestNonExtendedSupportedVersion(tt.in)
+			if got != tt.want {
+				t.Errorf("latestNonExtendedSupportedVersion = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
 // TestProvider_ListAllVersions_PreservesCycleOrder pins the invariant
 // that latestSupportedVersion depends on: cycles flow through
 // ListAllVersions in the same order the upstream client returned
