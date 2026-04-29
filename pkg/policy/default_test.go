@@ -289,10 +289,14 @@ func TestDefaultPolicy_GetRecommendation_Red(t *testing.T) {
 		CurrentVersion: "5.6.10a",
 	}
 
+	// RecommendedVersion is populated by the EOL provider from the
+	// latest supported cycle; the policy reads it verbatim into the
+	// recommendation string.
 	lifecycle := &types.VersionLifecycle{
-		Version: "5.6.10a",
-		Engine:  "aurora-mysql",
-		IsEOL:   true,
+		Version:            "5.6.10a",
+		Engine:             "aurora-mysql",
+		IsEOL:              true,
+		RecommendedVersion: "8.0.35",
 	}
 
 	recommendation := policy.GetRecommendation(resource, lifecycle, types.StatusRed)
@@ -305,6 +309,102 @@ func TestDefaultPolicy_GetRecommendation_Red(t *testing.T) {
 	expectedVersionSubstring := "8.0.35"
 	if !contains(recommendation, expectedVersionSubstring) {
 		t.Errorf("Expected recommendation to contain '%s', got: %s", expectedVersionSubstring, recommendation)
+	}
+}
+
+// TestDefaultPolicy_GetRecommendation_YellowExtendedSupport_AllRecommendationsExtended
+// pins the fix for the "every supported cycle is itself in extended
+// support" case. The naive code path would suggest "Upgrade to <X> to
+// avoid extended support costs" while <X> is still in extended
+// support — a false promise. RecommendedNonExtendedVersion is empty
+// in this scenario; the policy must drop the concrete target and
+// fall back to the neutral "supported version" wording.
+func TestDefaultPolicy_GetRecommendation_YellowExtendedSupport_AllRecommendationsExtended(t *testing.T) {
+	policy := NewDefaultPolicy()
+
+	resource := &types.Resource{
+		Engine:         "redis",
+		CurrentVersion: "5.0",
+	}
+	lifecycle := &types.VersionLifecycle{
+		Version:                       "5.0",
+		Engine:                        "redis",
+		IsSupported:                   true,
+		IsExtendedSupport:             true,
+		RecommendedVersion:            "6.2", // a newer cycle, but
+		RecommendedNonExtendedVersion: "",    // ...also in extended support
+	}
+
+	recommendation := policy.GetRecommendation(resource, lifecycle, types.StatusYellow)
+
+	// Must NOT suggest "Upgrade to redis 6.2 to avoid extended support costs"
+	// because 6.2 itself is in extended support — the upgrade wouldn't
+	// actually avoid the costs.
+	if contains(recommendation, "to redis 6.2") {
+		t.Errorf("recommendation surfaced an extended-support target as cost-avoidance: %q", recommendation)
+	}
+	expected := "Upgrade to a supported version of redis to avoid extended support costs"
+	if recommendation != expected {
+		t.Errorf("Expected fallback recommendation %q, got: %q", expected, recommendation)
+	}
+}
+
+// TestDefaultPolicy_GetRecommendation_Yellow_SuppressesSelfRecommendation
+// pins the behavior where the EOL provider reports the same cycle as
+// both the user's current version and the recommendation (e.g., the
+// resource is already on the newest supported cycle but is now
+// approaching that cycle's EOL date). Suggesting "Upgrade to 17"
+// when the user is already on 17 is misleading, so the policy must
+// fall back to the generic "latest supported version" wording.
+func TestDefaultPolicy_GetRecommendation_Yellow_SuppressesSelfRecommendation(t *testing.T) {
+	policy := NewDefaultPolicy()
+
+	resource := &types.Resource{
+		Engine:         "aurora-postgresql",
+		CurrentVersion: "17",
+	}
+	lifecycle := &types.VersionLifecycle{
+		Version:            "17",
+		Engine:             "aurora-postgresql",
+		IsSupported:        true,
+		RecommendedVersion: "17", // same as the resource's current cycle
+	}
+
+	recommendation := policy.GetRecommendation(resource, lifecycle, types.StatusYellow)
+
+	// Must not suggest upgrading to the same cycle the resource is on.
+	if contains(recommendation, "to aurora-postgresql 17") {
+		t.Errorf("recommendation suggested upgrading to current cycle: %q", recommendation)
+	}
+	expected := "Plan upgrade to the latest supported version of aurora-postgresql within the next 90 days"
+	if recommendation != expected {
+		t.Errorf("Expected fallback recommendation %q, got: %q", expected, recommendation)
+	}
+}
+
+// TestDefaultPolicy_GetRecommendation_Red_NoRecommendation verifies the
+// fallback path when the EOL provider didn't supply a RecommendedVersion
+// (e.g., 404 product on endoflife.date, every cycle past EOL).
+func TestDefaultPolicy_GetRecommendation_Red_NoRecommendation(t *testing.T) {
+	policy := NewDefaultPolicy()
+
+	resource := &types.Resource{
+		Engine:         "aurora-mysql",
+		CurrentVersion: "5.6.10a",
+	}
+
+	lifecycle := &types.VersionLifecycle{
+		Version: "5.6.10a",
+		Engine:  "aurora-mysql",
+		IsEOL:   true,
+		// RecommendedVersion intentionally empty
+	}
+
+	recommendation := policy.GetRecommendation(resource, lifecycle, types.StatusRed)
+
+	expected := "Upgrade to the latest supported version of aurora-mysql immediately"
+	if recommendation != expected {
+		t.Errorf("Expected fallback recommendation %q, got: %q", expected, recommendation)
 	}
 }
 
