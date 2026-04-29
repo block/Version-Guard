@@ -19,6 +19,16 @@ const (
 	DefaultTimeout = 10 * time.Second
 )
 
+// ErrProductNotFound is returned by GetProductCycles when the upstream
+// API responds with 404 — i.e. the product slug is unknown to
+// endoflife.date (typo, new product not yet added, or pending PR).
+//
+// Callers should treat this as a recoverable signal (resource type
+// becomes UNKNOWN rather than the whole scan failing) and discriminate
+// it via errors.Is rather than substring-matching the wrapped message,
+// which would silently break if the wrapper text changes.
+var ErrProductNotFound = errors.New("endoflife.date product not found")
+
 // Client defines the interface for endoflife.date API calls
 // This allows us to mock the HTTP client for testing
 type Client interface {
@@ -88,6 +98,13 @@ func (c *RealHTTPClient) GetProductCycles(ctx context.Context, product string) (
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
+		// 404 is a meaningful signal: the product slug doesn't exist on
+		// endoflife.date. Wrap with the typed sentinel so callers can
+		// errors.Is(err, ErrProductNotFound) without sniffing the
+		// message text.
+		if resp.StatusCode == http.StatusNotFound {
+			return nil, errors.Wrapf(ErrProductNotFound, "product %q", product)
+		}
 		body, err := io.ReadAll(resp.Body)
 		if err != nil {
 			return nil, errors.Errorf("unexpected status code %d (failed to read response body)", resp.StatusCode)

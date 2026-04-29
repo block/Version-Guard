@@ -2,6 +2,7 @@ package endoflife
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -103,6 +104,28 @@ func TestRealHTTPClient_GetProductCycles(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// TestRealHTTPClient_404ReturnsTypedError pins the contract that a 404 from
+// endoflife.date is wrapped in ErrProductNotFound — callers (the Provider
+// 404 cache path in particular) must be able to discriminate via errors.Is
+// without sniffing the message text.
+func TestRealHTTPClient_404ReturnsTypedError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write([]byte(`{"error":"Product not found"}`))
+	}))
+	defer server.Close()
+
+	client := NewRealHTTPClientWithConfig(&http.Client{Timeout: 5 * time.Second}, server.URL)
+	_, err := client.GetProductCycles(context.Background(), "non-existent")
+
+	if err == nil {
+		t.Fatal("expected error for 404, got nil")
+	}
+	if !errors.Is(err, ErrProductNotFound) {
+		t.Errorf("404 should wrap ErrProductNotFound, got %v", err)
 	}
 }
 
