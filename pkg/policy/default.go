@@ -212,33 +212,50 @@ func (p *DefaultPolicy) GetRecommendation(resource *types.Resource, lifecycle *t
 	}
 }
 
+// usableRecommendation returns the EOL provider's RecommendedVersion if
+// it's both non-empty AND different from the resource's current cycle.
+// Recommending the same cycle the resource is already on (which can
+// happen on the YELLOW "approaching EOL" path when the user is
+// already on the newest supported cycle) would produce a confusing
+// "Upgrade to X" message that's effectively a no-op.
+func usableRecommendation(resource *types.Resource, lifecycle *types.VersionLifecycle) string {
+	if lifecycle.RecommendedVersion == "" {
+		return ""
+	}
+	if lifecycle.RecommendedVersion == lifecycle.Version ||
+		lifecycle.RecommendedVersion == resource.CurrentVersion {
+		return ""
+	}
+	return lifecycle.RecommendedVersion
+}
+
 func (p *DefaultPolicy) getRedRecommendation(resource *types.Resource, lifecycle *types.VersionLifecycle) string {
 	// Suggest an upgrade target based on the EOL provider's view of
-	// the latest supported cycle for this product. Empty means the
-	// provider couldn't determine one — fall back to a generic message.
-	if lifecycle.RecommendedVersion != "" {
+	// the latest supported cycle for this product. Empty (or equal
+	// to the current version) means the provider couldn't determine
+	// a useful different target — fall back to a generic message.
+	if rec := usableRecommendation(resource, lifecycle); rec != "" {
 		return fmt.Sprintf("Upgrade to %s %s immediately to restore support",
-			resource.Engine,
-			lifecycle.RecommendedVersion)
+			resource.Engine, rec)
 	}
 
 	return fmt.Sprintf("Upgrade to the latest supported version of %s immediately", resource.Engine)
 }
 
 func (p *DefaultPolicy) getYellowRecommendation(resource *types.Resource, lifecycle *types.VersionLifecycle) string {
+	rec := usableRecommendation(resource, lifecycle)
+
 	if lifecycle.IsExtendedSupport {
-		if lifecycle.RecommendedVersion != "" {
+		if rec != "" {
 			return fmt.Sprintf("Upgrade to %s %s to avoid extended support costs",
-				resource.Engine,
-				lifecycle.RecommendedVersion)
+				resource.Engine, rec)
 		}
 		return fmt.Sprintf("Upgrade to a supported version of %s to avoid extended support costs", resource.Engine)
 	}
 
-	if lifecycle.RecommendedVersion != "" {
+	if rec != "" {
 		return fmt.Sprintf("Plan upgrade to %s %s within the next 90 days",
-			resource.Engine,
-			lifecycle.RecommendedVersion)
+			resource.Engine, rec)
 	}
 
 	return fmt.Sprintf("Plan upgrade to the latest supported version of %s within the next 90 days", resource.Engine)

@@ -100,6 +100,12 @@ func (p *Provider) Engines() []string {
 // the product-wide RecommendedVersion — the latest currently-supported
 // cycle the provider knows about — so the policy layer can suggest a
 // concrete upgrade target without re-querying the provider.
+//
+// Concurrency note: this function MUST NOT mutate the *VersionLifecycle
+// pointers it gets back from ListAllVersions — those are shared across
+// concurrent callers via the cache. RecommendedVersion is therefore
+// stamped onto every cached lifecycle once, at cache-population time
+// inside ListAllVersions, and we read it from there.
 func (p *Provider) GetVersionLifecycle(ctx context.Context, engine, version string) (*types.VersionLifecycle, error) {
 	engine = strings.ToLower(engine)
 	version = strings.TrimSpace(version)
@@ -110,10 +116,6 @@ func (p *Provider) GetVersionLifecycle(ctx context.Context, engine, version stri
 		return nil, err
 	}
 
-	// Compute the product-wide upgrade recommendation once; we attach
-	// it to every returned lifecycle below.
-	recommended := latestSupportedVersion(versions)
-
 	// Find the specific version — try exact match first, then prefix match.
 	// endoflife.date uses major.minor cycles (e.g., "8.0", "7") while Wiz
 	// reports full versions (e.g., "8.0.35", "7.1.0").
@@ -122,7 +124,6 @@ func (p *Provider) GetVersionLifecycle(ctx context.Context, engine, version stri
 	for _, v := range versions {
 		cycleVersion := strings.TrimSpace(v.Version)
 		if cycleVersion == version {
-			v.RecommendedVersion = recommended
 			return v, nil
 		}
 		if strings.HasPrefix(version, cycleVersion+".") && len(cycleVersion) > bestMatchLen {
@@ -131,7 +132,6 @@ func (p *Provider) GetVersionLifecycle(ctx context.Context, engine, version stri
 		}
 	}
 	if bestMatch != nil {
-		bestMatch.RecommendedVersion = recommended
 		return bestMatch, nil
 	}
 
@@ -145,6 +145,18 @@ func (p *Provider) GetVersionLifecycle(ctx context.Context, engine, version stri
 	//
 	// Alternative (rejected): Return error - would cause workflow to skip resource,
 	// losing visibility into resources with incomplete EOL data coverage.
+	//
+	// We still want the unknown lifecycle to carry the product-wide
+	// RecommendedVersion so the policy layer can suggest an upgrade
+	// target even when the resource's exact version isn't on
+	// endoflife.date yet. It's safe to read it off the first cached
+	// lifecycle (every entry carries the same value, stamped once at
+	// cache-population time); fall back to scanning if the cache is
+	// empty (404 product / no cycles).
+	recommended := ""
+	if len(versions) > 0 {
+		recommended = versions[0].RecommendedVersion
+	}
 	return &types.VersionLifecycle{
 		Version:            "", // Empty = unknown data, not unsupported version
 		Engine:             engine,
@@ -156,10 +168,19 @@ func (p *Provider) GetVersionLifecycle(ctx context.Context, engine, version stri
 }
 
 // latestSupportedVersion picks the upgrade target the policy layer
-// should recommend for this product. endoflife.date returns cycles
-// newest-first, so we take the first cycle that is still supported and
-// not already in (paid) extended support — that's the freshest cycle a
-// customer can move to without paying the extended-support premium.
+// should recommend for this product.
+//
+// PRECONDITION: versions MUST be in newest-first order. We rely on
+// endoflife.date returning cycles newest-first, and ListAllVersions
+// preserves that ordering verbatim through convertCycle. The contract
+// is pinned by TestProvider_ListAllVersions_PreservesCycleOrder so a
+// future caching/reordering refactor that breaks the invariant fails
+// loudly in CI rather than silently mis-recommending older cycles.
+//
+// Within that ordering we take the first cycle that is still
+// supported and not already in (paid) extended support — that's the
+// freshest cycle a customer can move to without paying the
+// extended-support premium.
 //
 // If every supported cycle is in extended support (the product is
 // fully past standard support across the board), we fall back to the
@@ -238,6 +259,17 @@ func (p *Provider) ListAllVersions(ctx context.Context, engine string) ([]*types
 				continue
 			}
 			versions = append(versions, lifecycle)
+		}
+
+		// Stamp the product-wide upgrade recommendation onto every
+		// cached lifecycle exactly once, before publishing to the
+		// cache. After this point versions[i].RecommendedVersion is
+		// immutable for the lifetime of this cache entry — concurrent
+		// readers in GetVersionLifecycle observe a stable value
+		// without further synchronization.
+		recommended := latestSupportedVersion(versions)
+		for _, v := range versions {
+			v.RecommendedVersion = recommended
 		}
 
 		// Cache the result

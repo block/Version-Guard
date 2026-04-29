@@ -3,6 +3,7 @@ package endoflife
 import (
 	"context"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -593,6 +594,92 @@ func TestLatestSupportedVersion(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestProvider_ListAllVersions_PreservesCycleOrder pins the invariant
+// that latestSupportedVersion depends on: cycles flow through
+// ListAllVersions in the same order the upstream client returned
+// them. If a future refactor sorts/dedupes/groups cycles inside
+// ListAllVersions, the recommendation heuristic silently breaks; this
+// test fails first.
+func TestProvider_ListAllVersions_PreservesCycleOrder(t *testing.T) {
+	mockClient := &MockClient{
+		GetProductCyclesFunc: func(_ context.Context, _ string) ([]*ProductCycle, error) {
+			// Deliberately not in semver order — we want to assert
+			// ListAllVersions does NOT reorder.
+			return []*ProductCycle{
+				{Cycle: "17", ReleaseDate: "2025-02-20", Support: "2030-02-28", EOL: "2030-02-28"},
+				{Cycle: "16", ReleaseDate: "2024-02-20", Support: "2029-02-28", EOL: "2029-02-28"},
+				{Cycle: "9.6", ReleaseDate: "2016-09-29", Support: "2021-11-11", EOL: "2021-11-11"},
+				{Cycle: "12", ReleaseDate: "2019-10-03", Support: "2024-11-14", EOL: "2024-11-14"},
+			}, nil
+		},
+	}
+	provider, _ := NewProvider(mockClient, "amazon-rds-postgresql", "", 1*time.Hour, nil)
+
+	versions, err := provider.ListAllVersions(context.Background(), "postgres")
+	if err != nil {
+		t.Fatalf("ListAllVersions error: %v", err)
+	}
+	want := []string{"17", "16", "9.6", "12"}
+	if len(versions) != len(want) {
+		t.Fatalf("got %d cycles, want %d", len(versions), len(want))
+	}
+	for i, w := range want {
+		if versions[i].Version != w {
+			t.Errorf("cycle[%d] = %q, want %q", i, versions[i].Version, w)
+		}
+	}
+}
+
+// TestProvider_GetVersionLifecycle_ConcurrentSafe verifies that
+// concurrent callers on the same product do not race on shared cached
+// *VersionLifecycle pointers. Run with `go test -race` to catch any
+// regression that re-introduces the cache-mutation race fixed by
+// stamping RecommendedVersion at cache-population time.
+func TestProvider_GetVersionLifecycle_ConcurrentSafe(t *testing.T) {
+	mockClient := &MockClient{
+		GetProductCyclesFunc: func(_ context.Context, _ string) ([]*ProductCycle, error) {
+			return []*ProductCycle{
+				{Cycle: "17", ReleaseDate: "2025-02-20", Support: "2030-02-28", EOL: "2030-02-28"},
+				{Cycle: "16.2", ReleaseDate: "2024-05-09", Support: "2028-11-09", EOL: "2028-11-09"},
+				{Cycle: "12.18", ReleaseDate: "2020-11-12", Support: "2024-11-14", EOL: "2024-11-14"},
+			}, nil
+		},
+	}
+	provider, _ := NewProvider(mockClient, "amazon-rds-postgresql", "", 1*time.Hour, nil)
+
+	// Prime the cache once on the main goroutine so all subsequent
+	// callers hit the cached path and exercise the shared-pointer
+	// codepath that previously raced.
+	if _, err := provider.ListAllVersions(context.Background(), "postgres"); err != nil {
+		t.Fatalf("warm-up ListAllVersions error: %v", err)
+	}
+
+	const goroutines = 32
+	const callsPerGoroutine = 25
+	versionsToQuery := []string{"17", "16.2.3", "12.18", "99.0" /* unknown */}
+
+	var wg sync.WaitGroup
+	for g := 0; g < goroutines; g++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for i := 0; i < callsPerGoroutine; i++ {
+				v := versionsToQuery[i%len(versionsToQuery)]
+				lifecycle, err := provider.GetVersionLifecycle(context.Background(), "postgres", v)
+				if err != nil {
+					t.Errorf("GetVersionLifecycle(%q) error: %v", v, err)
+					return
+				}
+				if lifecycle.RecommendedVersion != "17" {
+					t.Errorf("RecommendedVersion = %q, want %q", lifecycle.RecommendedVersion, "17")
+					return
+				}
+			}
+		}()
+	}
+	wg.Wait()
 }
 
 // TestProvider_GetVersionLifecycle_PopulatesRecommendedVersion verifies
