@@ -73,6 +73,8 @@ func OrchestratorWorkflow(ctx workflow.Context, input WorkflowInput) (*WorkflowO
 			"aurora-mysql",
 			"eks",
 			"elasticache-redis",
+			"elasticache-valkey",
+			"elasticache-memcached",
 			"opensearch",
 			"rds-mysql",
 			"rds-postgresql",

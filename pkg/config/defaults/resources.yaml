@@ -113,12 +113,22 @@ resources:
       product: amazon-eks
       schema: eks_adapter
 
+  # ElastiCache is split per-engine because each engine has its own
+  # endoflife.date product with different lifecycle semantics, and Wiz
+  # reports them as distinct nativeTypes (elastiCache/<Engine>/cluster).
+  # All three configs read from the SAME Wiz report; the
+  # native_type_pattern filter narrows each one to its engine's rows.
+  # Set WIZ_REPORT_IDS to map all three keys to the same report ID:
+  #   {"elasticache-redis":"X","elasticache-valkey":"X","elasticache-memcached":"X"}
   - id: elasticache-redis
     type: elasticache
     cloud_provider: aws
     inventory:
       source: wiz
-      native_type_pattern: "elastiCache/*/cluster"
+      # Engine-specific pattern — keeps Valkey/Memcached rows out of
+      # the redis lookup, which would otherwise route to the wrong
+      # endoflife.date product and emit UNKNOWN findings.
+      native_type_pattern: "elastiCache/Redis/cluster"
       required_mappings:
         resource_id: "externalId"
         version: "versionDetails.version"
@@ -130,7 +140,58 @@ resources:
         tags: "tags"
     eol:
       provider: endoflife-date
-      product: redis
+      # AWS-flavored product, NOT upstream `redis`. AWS ElastiCache
+      # ships AWS-specific cycles (e.g. 7.1) that don't exist on
+      # upstream Redis, and AWS lifecycle dates differ from upstream.
+      # Cycles are major-only ("7", "6", "5", "4") so prefix-matching
+      # in the provider resolves "7.1.0" → cycle "7" cleanly.
+      product: amazon-elasticache-redis
+      schema: standard
+
+  - id: elasticache-valkey
+    type: elasticache
+    cloud_provider: aws
+    inventory:
+      source: wiz
+      native_type_pattern: "elastiCache/Valkey/cluster"
+      required_mappings:
+        resource_id: "externalId"
+        version: "versionDetails.version"
+        engine: "typeFields.kind"
+      field_mappings:
+        name: "name"
+        account_id: "cloudAccount.externalId"
+        region: "region"
+        tags: "tags"
+    eol:
+      provider: endoflife-date
+      # Upstream valkey product — endoflife.date does not yet have an
+      # AWS-flavored amazon-elasticache-valkey product. Cycles are
+      # minor-granularity (8.1, 8.0, 7.2) which prefix-matches
+      # AWS-reported full versions.
+      product: valkey
+      schema: standard
+
+  - id: elasticache-memcached
+    type: elasticache
+    cloud_provider: aws
+    inventory:
+      source: wiz
+      native_type_pattern: "elastiCache/Memcached/cluster"
+      required_mappings:
+        resource_id: "externalId"
+        version: "versionDetails.version"
+        engine: "typeFields.kind"
+      field_mappings:
+        name: "name"
+        account_id: "cloudAccount.externalId"
+        region: "region"
+        tags: "tags"
+    eol:
+      provider: endoflife-date
+      # Upstream memcached product — endoflife.date does not have an
+      # AWS-flavored amazon-elasticache-memcached product.
+      product: memcached
       schema: standard
 
   - id: opensearch

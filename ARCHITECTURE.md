@@ -753,6 +753,8 @@ export WIZ_REPORT_IDS='{
   "aurora-mysql": "your-aurora-mysql-report-id",
   "eks": "your-eks-report-id",
   "elasticache-redis": "your-elasticache-report-id",
+  "elasticache-valkey": "your-elasticache-report-id",
+  "elasticache-memcached": "your-elasticache-report-id",
   "rds-postgresql": "your-new-report-id"
 }'
 ```
