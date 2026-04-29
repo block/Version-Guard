@@ -95,6 +95,11 @@ func (p *Provider) Engines() []string {
 // of the provider's product. The engine argument is preserved as a label
 // on the returned VersionLifecycle for downstream display; product
 // resolution comes from p.product, set at construction time.
+//
+// Every returned lifecycle (matched, prefix-matched, or unknown) carries
+// the product-wide RecommendedVersion — the latest currently-supported
+// cycle the provider knows about — so the policy layer can suggest a
+// concrete upgrade target without re-querying the provider.
 func (p *Provider) GetVersionLifecycle(ctx context.Context, engine, version string) (*types.VersionLifecycle, error) {
 	engine = strings.ToLower(engine)
 	version = strings.TrimSpace(version)
@@ -105,6 +110,10 @@ func (p *Provider) GetVersionLifecycle(ctx context.Context, engine, version stri
 		return nil, err
 	}
 
+	// Compute the product-wide upgrade recommendation once; we attach
+	// it to every returned lifecycle below.
+	recommended := latestSupportedVersion(versions)
+
 	// Find the specific version — try exact match first, then prefix match.
 	// endoflife.date uses major.minor cycles (e.g., "8.0", "7") while Wiz
 	// reports full versions (e.g., "8.0.35", "7.1.0").
@@ -113,6 +122,7 @@ func (p *Provider) GetVersionLifecycle(ctx context.Context, engine, version stri
 	for _, v := range versions {
 		cycleVersion := strings.TrimSpace(v.Version)
 		if cycleVersion == version {
+			v.RecommendedVersion = recommended
 			return v, nil
 		}
 		if strings.HasPrefix(version, cycleVersion+".") && len(cycleVersion) > bestMatchLen {
@@ -121,6 +131,7 @@ func (p *Provider) GetVersionLifecycle(ctx context.Context, engine, version stri
 		}
 	}
 	if bestMatch != nil {
+		bestMatch.RecommendedVersion = recommended
 		return bestMatch, nil
 	}
 
@@ -135,12 +146,40 @@ func (p *Provider) GetVersionLifecycle(ctx context.Context, engine, version stri
 	// Alternative (rejected): Return error - would cause workflow to skip resource,
 	// losing visibility into resources with incomplete EOL data coverage.
 	return &types.VersionLifecycle{
-		Version:     "", // Empty = unknown data, not unsupported version
-		Engine:      engine,
-		IsSupported: false,
-		Source:      p.Name(),
-		FetchedAt:   time.Now(),
+		Version:            "", // Empty = unknown data, not unsupported version
+		Engine:             engine,
+		IsSupported:        false,
+		Source:             p.Name(),
+		FetchedAt:          time.Now(),
+		RecommendedVersion: recommended,
 	}, nil
+}
+
+// latestSupportedVersion picks the upgrade target the policy layer
+// should recommend for this product. endoflife.date returns cycles
+// newest-first, so we take the first cycle that is still supported and
+// not already in (paid) extended support — that's the freshest cycle a
+// customer can move to without paying the extended-support premium.
+//
+// If every supported cycle is in extended support (the product is
+// fully past standard support across the board), we fall back to the
+// newest extended-support cycle so the user still gets *some* concrete
+// target. If nothing is supported at all, return "" — the policy layer
+// is responsible for the no-target fallback message.
+func latestSupportedVersion(versions []*types.VersionLifecycle) string {
+	var extendedFallback string
+	for _, v := range versions {
+		if !v.IsSupported {
+			continue
+		}
+		if !v.IsExtendedSupport {
+			return v.Version
+		}
+		if extendedFallback == "" {
+			extendedFallback = v.Version
+		}
+	}
+	return extendedFallback
 }
 
 // ListAllVersions retrieves all versions for the provider's product.

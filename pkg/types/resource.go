@@ -101,6 +101,14 @@ type VersionLifecycle struct {
 	// Source indicates where this lifecycle data came from (e.g., "aws-rds-api", "endoflife.date")
 	Source string
 
+	// RecommendedVersion is the latest supported, non-extended-support
+	// cycle for this product as reported by the EOL provider. The
+	// policy layer reads this when generating upgrade recommendations
+	// for RED/YELLOW findings; an empty string means the provider
+	// could not determine a current recommendation (e.g. no cycles,
+	// product not on endoflife.date, every cycle past EOL).
+	RecommendedVersion string
+
 	// IsEOL indicates if the version is past End-of-Life
 	IsEOL bool
 

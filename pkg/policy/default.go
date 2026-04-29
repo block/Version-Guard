@@ -212,35 +212,33 @@ func (p *DefaultPolicy) GetRecommendation(resource *types.Resource, lifecycle *t
 	}
 }
 
-//nolint:unparam // lifecycle may be used in future enhancements
 func (p *DefaultPolicy) getRedRecommendation(resource *types.Resource, lifecycle *types.VersionLifecycle) string {
-	// Try to suggest an upgrade path based on engine type
-	suggestedVersion := p.getSuggestedVersion(resource.Engine)
-	if suggestedVersion != "" {
+	// Suggest an upgrade target based on the EOL provider's view of
+	// the latest supported cycle for this product. Empty means the
+	// provider couldn't determine one — fall back to a generic message.
+	if lifecycle.RecommendedVersion != "" {
 		return fmt.Sprintf("Upgrade to %s %s immediately to restore support",
 			resource.Engine,
-			suggestedVersion)
+			lifecycle.RecommendedVersion)
 	}
 
 	return fmt.Sprintf("Upgrade to the latest supported version of %s immediately", resource.Engine)
 }
 
 func (p *DefaultPolicy) getYellowRecommendation(resource *types.Resource, lifecycle *types.VersionLifecycle) string {
-	suggestedVersion := p.getSuggestedVersion(resource.Engine)
-
 	if lifecycle.IsExtendedSupport {
-		if suggestedVersion != "" {
+		if lifecycle.RecommendedVersion != "" {
 			return fmt.Sprintf("Upgrade to %s %s to avoid extended support costs",
 				resource.Engine,
-				suggestedVersion)
+				lifecycle.RecommendedVersion)
 		}
 		return fmt.Sprintf("Upgrade to a supported version of %s to avoid extended support costs", resource.Engine)
 	}
 
-	if suggestedVersion != "" {
+	if lifecycle.RecommendedVersion != "" {
 		return fmt.Sprintf("Plan upgrade to %s %s within the next 90 days",
 			resource.Engine,
-			suggestedVersion)
+			lifecycle.RecommendedVersion)
 	}
 
 	return fmt.Sprintf("Plan upgrade to the latest supported version of %s within the next 90 days", resource.Engine)
@@ -262,26 +260,4 @@ func versionMatches(lifecycleVersion, resourceVersion string) bool {
 		return true
 	}
 	return strings.HasPrefix(normalized, lifecycleVersion+".")
-}
-
-// getSuggestedVersion returns a suggested version based on engine type
-// This is a simplified version - in production, this would query the EOL provider
-// for the latest supported version
-func (p *DefaultPolicy) getSuggestedVersion(engine string) string {
-	// Mapping of common engines to their recommended versions
-	// TODO: Replace with dynamic lookup from EOL provider
-	recommendations := map[string]string{
-		"aurora-mysql":      "8.0.35",
-		"aurora-postgresql": "15.4",
-		"postgres":          "15.4",
-		"mysql":             "8.0.35",
-		"redis":             "7.0",
-		"opensearch":        "2.11",
-	}
-
-	if version, ok := recommendations[engine]; ok {
-		return version
-	}
-
-	return ""
 }

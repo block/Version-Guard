@@ -289,10 +289,14 @@ func TestDefaultPolicy_GetRecommendation_Red(t *testing.T) {
 		CurrentVersion: "5.6.10a",
 	}
 
+	// RecommendedVersion is populated by the EOL provider from the
+	// latest supported cycle; the policy reads it verbatim into the
+	// recommendation string.
 	lifecycle := &types.VersionLifecycle{
-		Version: "5.6.10a",
-		Engine:  "aurora-mysql",
-		IsEOL:   true,
+		Version:            "5.6.10a",
+		Engine:             "aurora-mysql",
+		IsEOL:              true,
+		RecommendedVersion: "8.0.35",
 	}
 
 	recommendation := policy.GetRecommendation(resource, lifecycle, types.StatusRed)
@@ -305,6 +309,32 @@ func TestDefaultPolicy_GetRecommendation_Red(t *testing.T) {
 	expectedVersionSubstring := "8.0.35"
 	if !contains(recommendation, expectedVersionSubstring) {
 		t.Errorf("Expected recommendation to contain '%s', got: %s", expectedVersionSubstring, recommendation)
+	}
+}
+
+// TestDefaultPolicy_GetRecommendation_Red_NoRecommendation verifies the
+// fallback path when the EOL provider didn't supply a RecommendedVersion
+// (e.g., 404 product on endoflife.date, every cycle past EOL).
+func TestDefaultPolicy_GetRecommendation_Red_NoRecommendation(t *testing.T) {
+	policy := NewDefaultPolicy()
+
+	resource := &types.Resource{
+		Engine:         "aurora-mysql",
+		CurrentVersion: "5.6.10a",
+	}
+
+	lifecycle := &types.VersionLifecycle{
+		Version: "5.6.10a",
+		Engine:  "aurora-mysql",
+		IsEOL:   true,
+		// RecommendedVersion intentionally empty
+	}
+
+	recommendation := policy.GetRecommendation(resource, lifecycle, types.StatusRed)
+
+	expected := "Upgrade to the latest supported version of aurora-mysql immediately"
+	if recommendation != expected {
+		t.Errorf("Expected fallback recommendation %q, got: %q", expected, recommendation)
 	}
 }
 
