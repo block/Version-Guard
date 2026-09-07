@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "overrides": [
+    {
+      "product": "sample-product",
+      "path": "api/sample-product.json",
+      "reason": "Product pending upstream inclusion",
+      "owner": "@example/owners",
+      "source_url": "https://github.com/endoflife-date/endoflife.date/pull/1",
+      "reviewed_on": "2026-08-05",
+      "review_due_on": "2026-09-04"
+    },
+    {
+      "product": "sample-product-two",
+      "path": "api/sample-product-two.json",
+      "reason": "Required cycles are missing upstream",
+      "owner": "@example/owners",
+      "source_url": "https://github.com/endoflife-date/endoflife.date/pull/2",
+      "reviewed_on": "2026-08-05",
+      "review_due_on": "2026-09-04"
+    }
+  ]
+}

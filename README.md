@@ -175,7 +175,7 @@ docker compose up --build
 | `endoflife` | Local EOL data override (nginx) | `8082` |
 | `version-guard` | The server | `8081` (HTTP admin), `9090` (OpenMetrics) |
 
-The `endoflife` service serves patched EOL data for products with pending upstream PRs on [endoflife.date](https://endoflife.date), and proxies everything else to the live API. See [`deploy/endoflife-override/README.md`](./deploy/endoflife-override/README.md) for details on adding or updating overrides.
+The `endoflife` service serves patched EOL data for products with pending upstream PRs on [endoflife.date](https://endoflife.date), and proxies everything else to the live API. The override set is driven by [`deploy/endoflife-override/manifest.json`](./deploy/endoflife-override/manifest.json) (currently empty — every product is served from upstream). See [`deploy/endoflife-override/README.md`](./deploy/endoflife-override/README.md) for adding, reviewing, and retiring overrides.
 
 Once running, open the Temporal Web UI at http://localhost:8233 to trigger and monitor workflows.
 

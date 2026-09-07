@@ -20,6 +20,11 @@ func TestValidateManifest(t *testing.T) {
 		wantWarning string
 	}{
 		{name: "valid manifest"},
+		{name: "no overrides is valid", mutate: func(t *testing.T, root string) {
+			require.NoError(t, os.Remove(filepath.Join(root, "api", "sample-product.json")))
+			require.NoError(t, os.Remove(filepath.Join(root, "api", "sample-product-two.json")))
+			mutateManifest(func(m *manifest) { m.Overrides = []manifestOverride{} })(t, root)
+		}},
 		{name: "unsupported schema version", mutate: mutateManifest(func(m *manifest) { m.SchemaVersion = 2 }), wantErr: "schema_version must be 1"},
 		{name: "missing product", mutate: mutateManifest(func(m *manifest) { m.Overrides[0].Product = "" }), wantErr: "product is required"},
 		{name: "missing path", mutate: mutateManifest(func(m *manifest) { m.Overrides[0].Path = "" }), wantErr: "path is required"},
@@ -35,7 +40,7 @@ func TestValidateManifest(t *testing.T) {
 			require.NoError(t, os.WriteFile(filepath.Join(root, "api", "unlisted.json"), []byte("[]"), 0o600))
 		}, wantErr: "has no manifest entry"},
 		{name: "entry references missing file", mutate: func(t *testing.T, root string) {
-			require.NoError(t, os.Remove(filepath.Join(root, "api", "amazon-aurora-mysql.json")))
+			require.NoError(t, os.Remove(filepath.Join(root, "api", "sample-product.json")))
 		}, wantErr: "does not exist"},
 		{name: "invalid source URL", mutate: mutateManifest(func(m *manifest) { m.Overrides[0].SourceURL = "http://example.com/source" }), wantErr: "must use https"},
 		{name: "malformed source URL", mutate: mutateManifest(func(m *manifest) { m.Overrides[0].SourceURL = "https://[invalid" }), wantErr: "valid https URL"},
@@ -44,22 +49,22 @@ func TestValidateManifest(t *testing.T) {
 		{name: "review interval over 30 days", mutate: mutateManifest(func(m *manifest) { m.Overrides[0].ReviewDueOn = "2026-09-05" }), wantErr: "exceeds 30 days"},
 		{name: "path escapes API directory", mutate: mutateManifest(func(m *manifest) { m.Overrides[0].Path = "api/../manifest.json" }), wantErr: "direct api/"},
 		{name: "nested API path", mutate: func(t *testing.T, root string) {
-			nested := filepath.Join(root, "api", "nested", "amazon-aurora-mysql.json")
+			nested := filepath.Join(root, "api", "nested", "sample-product.json")
 			require.NoError(t, os.MkdirAll(filepath.Dir(nested), 0o700))
-			require.NoError(t, os.Rename(filepath.Join(root, "api", "amazon-aurora-mysql.json"), nested))
-			mutateManifest(func(m *manifest) { m.Overrides[0].Path = "api/nested/amazon-aurora-mysql.json" })(t, root)
+			require.NoError(t, os.Rename(filepath.Join(root, "api", "sample-product.json"), nested))
+			mutateManifest(func(m *manifest) { m.Overrides[0].Path = "api/nested/sample-product.json" })(t, root)
 		}, wantErr: "direct api/"},
 		{name: "non-JSON API path", mutate: func(t *testing.T, root string) {
-			nonJSON := filepath.Join(root, "api", "amazon-aurora-mysql.txt")
-			require.NoError(t, os.Rename(filepath.Join(root, "api", "amazon-aurora-mysql.json"), nonJSON))
-			mutateManifest(func(m *manifest) { m.Overrides[0].Path = "api/amazon-aurora-mysql.txt" })(t, root)
+			nonJSON := filepath.Join(root, "api", "sample-product.txt")
+			require.NoError(t, os.Rename(filepath.Join(root, "api", "sample-product.json"), nonJSON))
+			mutateManifest(func(m *manifest) { m.Overrides[0].Path = "api/sample-product.txt" })(t, root)
 		}, wantErr: "direct api/"},
 		{name: "symlink API path", mutate: func(t *testing.T, root string) {
 			target := filepath.Join(t.TempDir(), "outside.json")
-			data, err := os.ReadFile(filepath.Join(root, "api", "amazon-aurora-mysql.json"))
+			data, err := os.ReadFile(filepath.Join(root, "api", "sample-product.json"))
 			require.NoError(t, err)
 			require.NoError(t, os.WriteFile(target, data, 0o600))
-			link := filepath.Join(root, "api", "amazon-aurora-mysql.json")
+			link := filepath.Join(root, "api", "sample-product.json")
 			require.NoError(t, os.Remove(link))
 			if err := os.Symlink(target, link); err != nil {
 				t.Skipf("platform cannot create symlinks: %v", err)
@@ -81,19 +86,19 @@ func TestValidateManifest(t *testing.T) {
 			require.NoError(t, file.Close())
 		}, wantErr: "multiple JSON values"},
 		{name: "invalid lifecycle data", mutate: func(t *testing.T, root string) {
-			require.NoError(t, os.WriteFile(filepath.Join(root, "api", "amazon-aurora-mysql.json"), []byte(`[{"cycle":"3","eol":42}]`), 0o600))
+			require.NoError(t, os.WriteFile(filepath.Join(root, "api", "sample-product.json"), []byte(`[{"cycle":"3","eol":42}]`), 0o600))
 		}, wantErr: "unsupported value type"},
 		{name: "malformed optional release date", mutate: func(t *testing.T, root string) {
-			require.NoError(t, os.WriteFile(filepath.Join(root, "api", "amazon-aurora-mysql.json"), []byte(`[{"cycle":"3","releaseDate":"2026-1-01"}]`), 0o600))
+			require.NoError(t, os.WriteFile(filepath.Join(root, "api", "sample-product.json"), []byte(`[{"cycle":"3","releaseDate":"2026-1-01"}]`), 0o600))
 		}, wantErr: "releaseDate"},
 		{name: "malformed optional latest release date", mutate: func(t *testing.T, root string) {
-			require.NoError(t, os.WriteFile(filepath.Join(root, "api", "amazon-aurora-mysql.json"), []byte(`[{"cycle":"3","latestReleaseDate":"not-a-date"}]`), 0o600))
+			require.NoError(t, os.WriteFile(filepath.Join(root, "api", "sample-product.json"), []byte(`[{"cycle":"3","latestReleaseDate":"not-a-date"}]`), 0o600))
 		}, wantErr: "latestReleaseDate"},
 		{name: "API data is not an array", mutate: func(t *testing.T, root string) {
-			require.NoError(t, os.WriteFile(filepath.Join(root, "api", "amazon-aurora-mysql.json"), []byte(`null`), 0o600))
+			require.NoError(t, os.WriteFile(filepath.Join(root, "api", "sample-product.json"), []byte(`null`), 0o600))
 		}, wantErr: "top-level array"},
 		{name: "API data has trailing JSON value", mutate: func(t *testing.T, root string) {
-			path := filepath.Join(root, "api", "amazon-aurora-mysql.json")
+			path := filepath.Join(root, "api", "sample-product.json")
 			data, err := os.ReadFile(path)
 			require.NoError(t, err)
 			data = append(data, []byte("\n{}")...)
@@ -104,7 +109,7 @@ func TestValidateManifest(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			root := copyRepositoryFixture(t)
+			root := copyFixture(t)
 			if tt.mutate != nil {
 				tt.mutate(t, root)
 			}
@@ -133,7 +138,7 @@ func TestValidateManifestReviewDueDateBoundary(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			var warnings bytes.Buffer
-			require.NoError(t, validateManifest(copyRepositoryFixture(t), tt.now, &warnings))
+			require.NoError(t, validateManifest(copyFixture(t), tt.now, &warnings))
 			require.Equal(t, tt.wantWarning != "", strings.Contains(warnings.String(), "review overdue"))
 		})
 	}
@@ -161,11 +166,15 @@ func mutateManifest(mutate func(*manifest)) func(*testing.T, string) {
 	}
 }
 
-func copyRepositoryFixture(t *testing.T) string {
+// copyFixture copies the synthetic override set under testdata/valid into a
+// temporary root so tests can mutate it. Tests must not depend on the
+// repository's live overrides, which come and go as upstream catches up.
+func copyFixture(t *testing.T) string {
 	t.Helper()
 	root := t.TempDir()
-	for _, path := range []string{"manifest.json", "api/amazon-aurora-mysql.json", "api/amazon-opensearch.json"} {
-		data, err := os.ReadFile(path)
+	source := filepath.Join("testdata", "valid")
+	for _, path := range []string{"manifest.json", "api/sample-product.json", "api/sample-product-two.json"} {
+		data, err := os.ReadFile(filepath.Join(source, path))
 		require.NoError(t, err)
 		destination := filepath.Join(root, path)
 		require.NoError(t, os.MkdirAll(filepath.Dir(destination), 0o700))

@@ -74,11 +74,9 @@ volumes: []
 #   - name: eol-data
 #     configMap:
 #       name: eol-override
-#       items:
-#         - key: amazon-aurora-mysql.json
-#           path: amazon-aurora-mysql.json
-#         - key: amazon-opensearch.json
-#           path: amazon-opensearch.json
+#       items:            # one entry per override in deploy/endoflife-override/manifest.json
+#         - key: <product>.json
+#           path: <product>.json
 #
 # Then set EOL_BASE_URL=http://127.0.0.1:8082/api in env to use the sidecar.
 # Note: use 127.0.0.1 (not localhost) to avoid IPv6 resolution issues.

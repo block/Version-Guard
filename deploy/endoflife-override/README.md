@@ -4,6 +4,11 @@ Version Guard uses [endoflife.date](https://endoflife.date) for all EOL lifecycl
 
 This override mechanism lets you **patch EOL data locally** without waiting for upstream merges.
 
+`manifest.json` currently carries no overrides: the two it once held
+(`amazon-aurora-mysql`, added upstream in endoflife.date#9534; `amazon-opensearch`
+3.3/3.5 cycles, added in endoflife.date#9919) were retired once upstream merged.
+The mechanism stays in place for the next gap.
+
 ## How It Works
 
 An nginx container serves local JSON files from `api/` and proxies everything else to the upstream endoflife.date API:
@@ -25,8 +30,8 @@ curl -s https://endoflife.date/api/amazon-opensearch.json | python3 -m json.tool
 # Edit the file to add missing cycles
 
 # New product — fetch from PR deploy preview
-curl -s https://deploy-preview-9534--endoflife-date.netlify.app/api/amazon-aurora-mysql.json \
-  | python3 -m json.tool > api/amazon-aurora-mysql.json
+curl -s https://deploy-preview-<pr-number>--endoflife-date.netlify.app/api/<product>.json \
+  | python3 -m json.tool > api/<product>.json
 ```
 
 2. Add or update the corresponding entry in `manifest.json`. The source URL,
@@ -63,8 +68,26 @@ When `EOL_BASE_URL` is not set, Version Guard connects directly to `https://endo
 
 ## Removing Overrides
 
-Once an upstream PR is merged, delete the local JSON file. Nginx will then proxy that product to the upstream API automatically.
+An override is retirable once upstream serves every cycle it carries. The
+integration-tagged check compares each manifest entry against the live API and
+fails, naming the products, when that is the case:
 
-Delete its `manifest.json` entry in the same change. Nginx marks local and
-upstream responses with authoritative `X-Version-Guard-EOL-Source` headers;
-those values flow into snapshot findings and lifecycle source metrics.
+```bash
+go test -tags=integration ./deploy/endoflife-override
+```
+
+Run it at each `review_due_on` date (and before adding a new override, to
+confirm the gap is still real). To retire an override, delete the local JSON
+file and its `manifest.json` entry in the same change, then re-run the check
+and `go test ./deploy/endoflife-override`. Nginx will then proxy that product
+to the upstream API automatically. Keep `api/.gitkeep` so the directory exists
+for the docker-compose bind mount and the manifest validator when no overrides
+remain.
+
+Before retiring, compare the classification the runtime adapter derives from
+the local file and from upstream (`pkg/eol/endoflife.StandardSchemaAdapter`);
+upstream data is authoritative but may move dates, so confirm any state change
+is intended. Nginx marks local and upstream responses with authoritative
+`X-Version-Guard-EOL-Source` headers; those values flow into snapshot findings
+and lifecycle source metrics, so a retired override shows up as
+`local_override` → `endoflife_date` in the next snapshot.
